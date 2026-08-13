@@ -38,4 +38,4 @@ The demo and the test suite both run without a Discord token or an API key.
 
 Do not put real Discord messages, usernames, user ids, guild ids, tokens, API
 keys, or database files in issues, pull requests, tests, or fixtures. Use
-fictional examples in the style of `fixtures/synthetic_messages.json`.
+fictional examples in the style of `seismograph/fixtures/synthetic_messages.json`.

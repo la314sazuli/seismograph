@@ -26,6 +26,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["seismograph"]
 
+[tool.setuptools.package-data]
+seismograph = ["fixtures/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]

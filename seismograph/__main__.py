@@ -18,7 +18,7 @@ from .pipeline import analysis_period, period_label
 from .report import InsufficientEvidence, build_report, render_markdown
 from .scoring import rank
 
-FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 DEMO_GUILD_ID = 100000000000000001
 DEMO_PERIOD_DAYS = 7
 
@@ -59,13 +59,6 @@ def cmd_prune(args: argparse.Namespace) -> int:
 
 def cmd_demo(args: argparse.Namespace) -> int:
     """Render a report from synthetic fixtures with no Discord or paid API call."""
-    if not FIXTURES.is_dir():
-        print(
-            f"Fixtures not found at {FIXTURES}. The demo runs from a checkout of the "
-            "repository; install it with 'pip install -e .' and run the command there.",
-            file=sys.stderr,
-        )
-        return 2
     messages = json.loads((FIXTURES / "synthetic_messages.json").read_text())["messages"]
     prepared = prepare(messages)
     print(

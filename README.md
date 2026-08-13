@@ -167,9 +167,9 @@ The demo runs on synthetic fixtures with no Discord token and no paid API call:
 python -m seismograph demo
 ```
 
-It loads `fixtures/synthetic_messages.json`, runs the real deterministic
+It loads `seismograph/fixtures/synthetic_messages.json`, runs the real deterministic
 preparation and validation, substitutes a recorded structured analysis from
-`fixtures/synthetic_analysis.json`, computes real Tremor Scores, and prints the
+`seismograph/fixtures/synthetic_analysis.json`, computes real Tremor Scores, and prints the
 Markdown report with a synthetic-data notice. All fixture content is fictional.
 
 Add `--live` to call the configured LLM instead of the recorded analysis. That

@@ -19,3 +19,16 @@ jobs:
       - run: ruff format --check .
       - run: pytest
       - run: python -m seismograph demo
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t seismograph:ci .
+      - name: Demo runs in the image
+        run: docker run --rm seismograph:ci demo
+      - name: Image runs as a non-root user
+        run: test "$(docker run --rm --entrypoint id seismograph:ci -u)" = "10001"
+      - name: Missing configuration fails instead of starting
+        run: |
+          ! docker run --rm seismograph:ci run
