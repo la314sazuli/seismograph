@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import httpx
 
@@ -37,6 +37,62 @@ _NOISE = re.compile(
 
 class AnalysisError(Exception):
     """Raised when analysis cannot produce a trustworthy result."""
+
+
+@dataclass(frozen=True)
+class Rejection:
+    """One discarded candidate: a stable kind for counting, plus a readable detail."""
+
+    kind: str
+    detail: str
+    stage: str = ""
+
+    def __str__(self) -> str:
+        return f"{self.stage}: {self.detail}" if self.stage else self.detail
+
+
+@dataclass
+class AnalysisRun:
+    """Result of stage 2 together with the counts needed to judge a live run."""
+
+    signals: list[Signal]
+    rejections: list[Rejection]
+    messages: int = 0
+    batches: int = 0
+    requests: int = 0
+    repair_attempts: int = 0
+    repairs_recovered: int = 0
+    signals_before_merge: int = 0
+    merge_requested: bool = False
+    merge_fallback: bool = False
+    largest_batch_messages: int = 0
+    largest_batch_chars: int = 0
+
+    def rejection_counts(self) -> list[tuple[str, int]]:
+        return Counter(rejection.kind for rejection in self.rejections).most_common()
+
+    def summary_lines(self) -> list[str]:
+        """Human-readable measurements of how well the model followed the schema."""
+        clean = self.batches - self.repair_attempts
+        lines = [
+            f"Messages analyzed: {self.messages} in {self.batches} batch(es); "
+            f"largest batch {self.largest_batch_messages} message(s), "
+            f"{self.largest_batch_chars} prompt characters",
+            f"Model requests: {self.requests}",
+            f"Batches valid on first attempt: {clean} of {self.batches}",
+            f"Repair attempts: {self.repair_attempts}, recovered: {self.repairs_recovered}",
+            f"Candidates rejected: {len(self.rejections)}",
+        ]
+        lines.extend(f"  {kind}: {count}" for kind, count in self.rejection_counts())
+        if self.merge_requested:
+            how = "deterministic fallback" if self.merge_fallback else "model"
+            lines.append(
+                f"Signals: {self.signals_before_merge} before merge, "
+                f"{len(self.signals)} after ({how})"
+            )
+        else:
+            lines.append(f"Signals accepted: {len(self.signals)} (no merge pass needed)")
+        return lines
 
 
 @dataclass(frozen=True)
@@ -112,7 +168,7 @@ def _as_float(value: object) -> float | None:
 def validate_signals(
     raw: object,
     messages: list[PreparedMessage],
-) -> tuple[list[Signal], list[str]]:
+) -> tuple[list[Signal], list[Rejection]]:
     """Turn model output into Signals, rejecting anything unsupported.
 
     Returns accepted signals and a rejection reason per discarded candidate.
@@ -124,44 +180,51 @@ def validate_signals(
 
     by_id = {message.message_id: message for message in messages}
     accepted: list[Signal] = []
-    rejected: list[str] = []
+    rejected: list[Rejection] = []
 
     for index, candidate in enumerate(raw["signals"]):
         label = f"signal[{index}]"
         if not isinstance(candidate, dict):
-            rejected.append(f"{label}: not an object")
+            rejected.append(Rejection("not_an_object", f"{label}: not an object"))
             continue
 
         title = str(candidate.get("title", "")).strip()
         if not title:
-            rejected.append(f"{label}: missing title")
+            rejected.append(Rejection("missing_title", f"{label}: missing title"))
             continue
         label = f"{title!r}"
         title = title[:MAX_TITLE_CHARS]
 
         category = str(candidate.get("category", "")).strip().lower()
         if category not in CATEGORIES:
-            rejected.append(f"{label}: unknown category {category!r}")
+            rejected.append(
+                Rejection("unknown_category", f"{label}: unknown category {category!r}")
+            )
             continue
 
         severity_value = _as_float(candidate.get("severity"))
         if severity_value is None or not 1 <= severity_value <= 5:
-            rejected.append(f"{label}: severity outside 1-5")
+            rejected.append(Rejection("severity_out_of_range", f"{label}: severity outside 1-5"))
             continue
         confidence = _as_float(candidate.get("confidence"))
         if confidence is None or not 0 <= confidence <= 1:
-            rejected.append(f"{label}: confidence outside 0-1")
+            rejected.append(
+                Rejection("confidence_out_of_range", f"{label}: confidence outside 0-1")
+            )
             continue
 
         supporting_raw = candidate.get("supporting_message_ids")
         if not isinstance(supporting_raw, list) or not supporting_raw:
-            rejected.append(f"{label}: no supporting message ids")
+            rejected.append(Rejection("no_supporting_ids", f"{label}: no supporting message ids"))
             continue
         supporting = [str(value).strip() for value in supporting_raw]
         unknown = [value for value in supporting if value not in by_id]
         if unknown:
             rejected.append(
-                f"{label}: {len(unknown)} supporting id(s) were not in the analyzed input"
+                Rejection(
+                    "unknown_message_ids",
+                    f"{label}: {len(unknown)} supporting id(s) were not in the analyzed input",
+                )
             )
             continue
         supporting = list(dict.fromkeys(supporting))
@@ -170,11 +233,21 @@ def validate_signals(
             candidate.get("representative_message_ids") or supporting[:MAX_REPRESENTATIVE_IDS]
         )
         if not isinstance(representative_raw, list):
-            rejected.append(f"{label}: representative_message_ids is not a list")
+            rejected.append(
+                Rejection(
+                    "representative_not_a_list",
+                    f"{label}: representative_message_ids is not a list",
+                )
+            )
             continue
         representative = [str(value).strip() for value in representative_raw]
         if any(value not in supporting for value in representative):
-            rejected.append(f"{label}: representative ids are not a subset of supporting ids")
+            rejected.append(
+                Rejection(
+                    "representative_not_a_subset",
+                    f"{label}: representative ids are not a subset of supporting ids",
+                )
+            )
             continue
         representative = (
             list(dict.fromkeys(representative))[:MAX_REPRESENTATIVE_IDS] or supporting[:1]
@@ -309,33 +382,45 @@ def analyze(
     client: LLMClient,
     messages: list[PreparedMessage],
     period_label: str,
-) -> tuple[list[Signal], list[str]]:
+) -> AnalysisRun:
     """Stage 2: run structured analysis over batches and merge the results.
 
     Each batch is validated on its own with at most one repair attempt. If no
-    batch produces a usable signal, the caller must not publish a report.
+    batch produces a usable signal, the caller must not publish a report. The
+    returned run carries the counts needed to judge how well the model followed
+    the schema.
     """
     if not messages:
-        return [], ["no messages to analyze"]
+        return AnalysisRun(
+            signals=[], rejections=[Rejection("no_messages", "no messages to analyze")]
+        )
 
     batches = batch(messages)
     log.info("analyzing %d messages in %d batch(es)", len(messages), len(batches))
 
-    signals: list[Signal] = []
-    rejections: list[str] = []
+    run = AnalysisRun(signals=[], rejections=[], messages=len(messages), batches=len(batches))
     for number, chunk in enumerate(batches, start=1):
         user_prompt = analysis_user_prompt(period_label, [vars(m) for m in chunk])
-        accepted, rejected = _analyze_once(
-            client, ANALYSIS_SYSTEM_PROMPT, user_prompt, chunk, f"batch {number}"
+        run.largest_batch_messages = max(run.largest_batch_messages, len(chunk))
+        run.largest_batch_chars = max(run.largest_batch_chars, len(user_prompt))
+        run.signals.extend(
+            _analyze_once(
+                client, ANALYSIS_SYSTEM_PROMPT, user_prompt, chunk, f"batch {number}", run
+            )
         )
-        signals.extend(accepted)
-        rejections.extend(rejected)
 
-    if len(batches) > 1 and signals:
-        signals = _merge_with_model(client, signals, messages, rejections)
+    run.signals_before_merge = len(run.signals)
+    if len(batches) > 1 and run.signals:
+        run.merge_requested = True
+        run.signals = _merge_with_model(client, run, messages)
 
-    log.info("accepted %d signal(s), rejected %d candidate(s)", len(signals), len(rejections))
-    return signals, rejections
+    log.info(
+        "accepted %d signal(s), rejected %d candidate(s) in %d request(s)",
+        len(run.signals),
+        len(run.rejections),
+        run.requests,
+    )
+    return run
 
 
 def _analyze_once(
@@ -344,26 +429,38 @@ def _analyze_once(
     user_prompt: str,
     messages: list[PreparedMessage],
     label: str,
-) -> tuple[list[Signal], list[str]]:
+    run: AnalysisRun,
+) -> list[Signal]:
+    """Analyze one batch, recording every rejection on the run as it happens."""
+    run.requests += 1
     raw = client.complete_json(system_prompt, user_prompt)
     accepted, rejected = validate_signals(raw, messages)
     if accepted or not rejected:
-        return accepted, [f"{label}: {reason}" for reason in rejected]
+        run.rejections.extend(replace(r, stage=label) for r in rejected)
+        return accepted
 
+    # Keep the first attempt's reasons: they are what prompt tuning needs, even
+    # when the repair succeeds and nothing is ultimately lost.
+    run.rejections.extend(replace(r, stage=f"{label} (first attempt)") for r in rejected)
     log.warning("%s: all candidates rejected, requesting one repair", label)
-    repair_prompt = f"{user_prompt}\n\n{REPAIR_INSTRUCTION}" + "\n".join(f"- {r}" for r in rejected)
+    run.repair_attempts += 1
+    repair_prompt = f"{user_prompt}\n\n{REPAIR_INSTRUCTION}" + "\n".join(
+        f"- {r.detail}" for r in rejected
+    )
+    run.requests += 1
     raw = client.complete_json(system_prompt, repair_prompt)
     accepted, rejected_again = validate_signals(raw, messages)
-    return accepted, [f"{label} (after repair): {reason}" for reason in rejected_again]
+    if accepted:
+        run.repairs_recovered += 1
+    run.rejections.extend(replace(r, stage=f"{label} (after repair)") for r in rejected_again)
+    return accepted
 
 
 def _merge_with_model(
-    client: LLMClient,
-    signals: list[Signal],
-    messages: list[PreparedMessage],
-    rejections: list[str],
+    client: LLMClient, run: AnalysisRun, messages: list[PreparedMessage]
 ) -> list[Signal]:
     """Ask the model to merge duplicate clusters; fall back to a title merge."""
+    signals = run.signals
     candidates = [
         {
             "title": signal.title,
@@ -381,13 +478,17 @@ def _merge_with_model(
         for signal in signals
     ]
     try:
+        run.requests += 1
         raw = client.complete_json(MERGE_SYSTEM_PROMPT, merge_user_prompt(candidates))
         merged, rejected = validate_signals(raw, messages)
     except AnalysisError as exc:
         log.warning("merge pass failed (%s), using deterministic merge", exc)
+        run.merge_fallback = True
+        run.rejections.append(Rejection("merge_request_failed", str(exc), "merge pass"))
         return merge_candidates(signals)
+
+    run.rejections.extend(replace(r, stage="merge pass") for r in rejected)
     if not merged:
-        rejections.extend(f"merge pass: {reason}" for reason in rejected)
+        run.merge_fallback = True
         return merge_candidates(signals)
-    rejections.extend(f"merge pass: {reason}" for reason in rejected)
     return merged

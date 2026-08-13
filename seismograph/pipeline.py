@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import storage
-from .analysis import LLMClient, PreparedMessage, prepare
+from .analysis import AnalysisRun, LLMClient, PreparedMessage, prepare
 from .analysis import analyze as run_analysis
 from .report import Report, build_report
 from .scoring import Signal, rank
@@ -52,7 +52,7 @@ def generate_report(
     start: str,
     end: str,
     label: str,
-) -> tuple[int, Report, list[PreparedMessage], list[str]]:
+) -> tuple[int, Report, list[PreparedMessage], AnalysisRun]:
     """Run the full pipeline for one period.
 
     Raises InsufficientEvidence when nothing clears the evidence thresholds and
@@ -63,12 +63,12 @@ def generate_report(
     log.info("period %s to %s: %d stored, %d usable", start, end, len(stored), len(messages))
 
     run_id = storage.start_run(connection, kind, start, end)
-    signals, rejections = run_analysis(client, messages, label)
-    signals = apply_history(connection, run_id, signals)
+    analysis = run_analysis(client, messages, label)
+    signals = apply_history(connection, run_id, analysis.signals)
     signals = rank(signals, period_days=max(1, _period_days(start, end)))
     report = build_report(signals, messages, label)
     storage.save_signals(connection, run_id, signals)
-    return run_id, report, messages, rejections
+    return run_id, report, messages, analysis
 
 
 def apply_history(

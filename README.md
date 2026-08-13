@@ -173,7 +173,24 @@ preparation and validation, substitutes a recorded structured analysis from
 Markdown report with a synthetic-data notice. All fixture content is fictional.
 
 Add `--live` to call the configured LLM instead of the recorded analysis. That
-path requires full configuration and will incur provider cost.
+path requires full configuration and will incur provider cost. A live run prints
+a summary to stderr before the report so a provider or prompt change can be
+judged on numbers rather than impressions:
+
+```text
+Live analysis summary
+  Messages analyzed: 42 in 1 batch(es); largest batch 42 message(s), 4910 prompt characters
+  Model requests: 2
+  Batches valid on first attempt: 0 of 1
+  Repair attempts: 1, recovered: 1
+  Candidates rejected: 1
+    unknown_message_ids: 1
+  Signals accepted: 5 (no merge pass needed)
+```
+
+Every rejection carries a stable `kind`, so the counts show which schema rule a
+model actually struggles with. Reasons from a first attempt are kept even when
+the repair succeeds. Scheduled and on-demand runs log the same summary.
 
 ## Discord application setup
 

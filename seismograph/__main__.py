@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import storage
-from .analysis import AnalysisError, LLMClient, prepare, validate_signals
+from .analysis import AnalysisError, AnalysisRun, LLMClient, prepare, validate_signals
 from .config import ConfigError, load_config
 from .pipeline import analysis_period, period_label
 from .report import InsufficientEvidence, build_report, render_markdown
@@ -77,25 +77,36 @@ def cmd_demo(args: argparse.Namespace) -> int:
         from .analysis import analyze
 
         try:
-            signals, rejections = analyze(client, prepared, "synthetic demo period")
+            analysis = analyze(client, prepared, "synthetic demo period")
         except AnalysisError as exc:
             print(f"Live analysis failed: {exc}", file=sys.stderr)
             return 1
+        print("Live analysis summary", file=sys.stderr)
+        for line in analysis.summary_lines():
+            print(f"  {line}", file=sys.stderr)
+        print(file=sys.stderr)
         history = {}
     else:
         recorded = json.loads((FIXTURES / "synthetic_analysis.json").read_text())
-        signals, rejections = validate_signals(recorded, prepared)
+        accepted, rejected = validate_signals(recorded, prepared)
+        analysis = AnalysisRun(
+            signals=accepted,
+            rejections=rejected,
+            messages=len(prepared),
+            batches=1,
+            signals_before_merge=len(accepted),
+        )
         history = {
             (key.lower(), category): count
             for key, category, count in recorded.get("previous_message_counts", [])
         }
 
-    for reason in rejections:
-        print(f"Rejected candidate: {reason}", file=sys.stderr)
+    for rejection in analysis.rejections:
+        print(f"Rejected candidate: {rejection}", file=sys.stderr)
 
     signals = [
         replace(signal, previous_message_count=history.get((signal.title.lower(), signal.category)))
-        for signal in signals
+        for signal in analysis.signals
     ]
     signals = rank(signals, period_days=DEMO_PERIOD_DAYS)
 

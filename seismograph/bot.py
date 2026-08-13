@@ -173,11 +173,13 @@ class SeismographClient(discord.Client):
             raise AnalysisError(f"report channel {self.config.report_channel_id} is not writable")
 
         await self.collect_history(start, end)
-        run_id, report, messages, rejections = generate_report(
+        run_id, report, messages, analysis = generate_report(
             self.connection, self.llm, kind, start, end, label
         )
-        for reason in rejections:
-            log.info("rejected candidate: %s", reason)
+        for line in analysis.summary_lines():
+            log.info("%s", line)
+        for rejection in analysis.rejections:
+            log.info("rejected candidate: %s", rejection)
 
         markdown = render_markdown(report, self.config.guild_id, messages)
         chunks = split_for_discord(markdown)

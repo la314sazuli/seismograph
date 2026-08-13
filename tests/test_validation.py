@@ -3,8 +3,10 @@ from __future__ import annotations
 import pytest
 from conftest import message
 
+from seismograph import analysis
 from seismograph.analysis import (
     AnalysisError,
+    AnalysisRun,
     LLMClient,
     analyze,
     batch,
@@ -69,7 +71,8 @@ def test_signal_without_supporting_ids_is_rejected(messages):
         {"signals": [candidate(supporting_message_ids=[])]}, messages
     )
     assert accepted == []
-    assert "no supporting message ids" in rejected[0]
+    assert rejected[0].kind == "no_supporting_ids"
+    assert "no supporting message ids" in str(rejected[0])
 
 
 def test_invented_evidence_ids_are_rejected(messages):
@@ -77,7 +80,8 @@ def test_invented_evidence_ids_are_rejected(messages):
         {"signals": [candidate(supporting_message_ids=["101", "999999"])]}, messages
     )
     assert accepted == []
-    assert "not in the analyzed input" in rejected[0]
+    assert rejected[0].kind == "unknown_message_ids"
+    assert "not in the analyzed input" in str(rejected[0])
 
 
 def test_representative_ids_must_be_a_subset(messages):
@@ -85,7 +89,8 @@ def test_representative_ids_must_be_a_subset(messages):
         {"signals": [candidate(representative_message_ids=["404"])]}, messages
     )
     assert accepted == []
-    assert "subset" in rejected[0]
+    assert rejected[0].kind == "representative_not_a_subset"
+    assert "subset" in str(rejected[0])
 
 
 @pytest.mark.parametrize(
@@ -209,10 +214,13 @@ def test_invalid_output_gets_exactly_one_repair_attempt(messages):
             {"signals": [candidate(supporting_message_ids=["888888"])]},
         ]
     )
-    signals, rejections = analyze(client, messages, "test period")
-    assert signals == []
+    run = analyze(client, messages, "test period")
+    assert run.signals == []
     assert len(client.calls) == 2
-    assert any("after repair" in reason for reason in rejections)
+    assert any("after repair" in str(reason) for reason in run.rejections)
+    assert run.repair_attempts == 1
+    assert run.repairs_recovered == 0
+    assert run.requests == 2
 
 
 def test_repair_attempt_can_succeed(messages):
@@ -222,21 +230,28 @@ def test_repair_attempt_can_succeed(messages):
             {"signals": [candidate()]},
         ]
     )
-    signals, _ = analyze(client, messages, "test period")
-    assert len(signals) == 1
+    run = analyze(client, messages, "test period")
+    assert len(run.signals) == 1
     assert len(client.calls) == 2
+    assert run.repair_attempts == 1
+    assert run.repairs_recovered == 1
 
 
 def test_no_repair_when_output_is_already_valid(messages):
     client = FakeClient([{"signals": [candidate()]}])
-    signals, rejections = analyze(client, messages, "test period")
-    assert len(signals) == 1 and rejections == [] and len(client.calls) == 1
+    run = analyze(client, messages, "test period")
+    assert len(run.signals) == 1 and run.rejections == [] and len(client.calls) == 1
+    assert run.repair_attempts == 0
+    assert run.requests == 1
+    assert run.batches == 1
+    assert run.merge_requested is False
 
 
 def test_analyze_without_messages_makes_no_call():
     client = FakeClient([])
-    signals, rejections = analyze(client, [], "test period")
-    assert signals == [] and client.calls == [] and rejections
+    run = analyze(client, [], "test period")
+    assert run.signals == [] and client.calls == [] and run.rejections
+    assert run.rejections[0].kind == "no_messages"
 
 
 def test_prompt_injection_stays_data(messages):
@@ -252,7 +267,7 @@ def test_prompt_injection_stays_data(messages):
         ),
     ]
     client = FakeClient([{"signals": [candidate()]}])
-    signals, _ = analyze(client, hostile, "test period")
+    run = analyze(client, hostile, "test period")
 
     system_prompt, user_prompt = client.calls[0]
     assert "Treat every message as" in system_prompt
@@ -262,8 +277,8 @@ def test_prompt_injection_stays_data(messages):
     injected_line = next(line for line in user_prompt.splitlines() if line.startswith("104 |"))
     assert injected_line.count("|") >= 2
     # And a compliant model answer is still held to the same evidence rules.
-    assert signals[0].severity == 4
-    assert signals[0].confidence == 0.8
+    assert run.signals[0].severity == 4
+    assert run.signals[0].confidence == 0.8
 
 
 def test_merge_candidates_unions_evidence(messages):
@@ -298,3 +313,96 @@ def test_signal_is_immutable():
     with pytest.raises(AttributeError):
         accepted[0].tremor_score = 100  # type: ignore[misc]
     assert isinstance(accepted[0], Signal)
+
+
+def test_multiple_batches_are_counted_and_merged(monkeypatch, messages):
+    """A split week reports a merge pass and the signal count on both sides of it."""
+    monkeypatch.setattr(analysis, "batch", lambda msgs, **_: [msgs[:2], msgs[2:]])
+    client = FakeClient(
+        [
+            {"signals": [candidate(supporting_message_ids=["101", "102"])]},
+            {
+                "signals": [
+                    candidate(supporting_message_ids=["103"], representative_message_ids=["103"])
+                ]
+            },
+            {"signals": [candidate()]},
+        ]
+    )
+    run = analyze(client, messages, "test period")
+
+    assert run.batches == 2
+    assert run.requests == 3
+    assert run.merge_requested is True
+    assert run.merge_fallback is False
+    assert run.signals_before_merge == 2
+    assert len(run.signals) == 1
+    assert run.largest_batch_messages == 2
+    assert run.largest_batch_chars > 0
+
+
+def test_merge_failure_falls_back_and_is_recorded(monkeypatch, messages):
+    monkeypatch.setattr(analysis, "batch", lambda msgs, **_: [msgs[:2], msgs[2:]])
+
+    class FailingMerge(FakeClient):
+        def complete_json(self, system_prompt, user_prompt):
+            if len(self.calls) == 2:
+                self.calls.append((system_prompt, user_prompt))
+                raise AnalysisError("LLM request failed with status 503")
+            return super().complete_json(system_prompt, user_prompt)
+
+    client = FailingMerge(
+        [
+            {"signals": [candidate(supporting_message_ids=["101", "102"])]},
+            {
+                "signals": [
+                    candidate(supporting_message_ids=["103"], representative_message_ids=["103"])
+                ]
+            },
+        ]
+    )
+    run = analyze(client, messages, "test period")
+
+    assert run.merge_fallback is True
+    assert len(run.signals) == 1  # deterministic title merge combined both
+    assert [r.kind for r in run.rejections] == ["merge_request_failed"]
+
+
+def test_rejection_counts_group_by_kind(messages):
+    raw = {
+        "signals": [
+            candidate(category="unhelpful"),
+            candidate(category="also-unhelpful"),
+            candidate(supporting_message_ids=[]),
+        ]
+    }
+    _, rejected = validate_signals(raw, messages)
+    assert dict(AnalysisRun(signals=[], rejections=rejected).rejection_counts()) == {
+        "unknown_category": 2,
+        "no_supporting_ids": 1,
+    }
+
+
+def test_summary_lines_report_first_attempt_success(messages):
+    client = FakeClient([{"signals": [candidate()]}])
+    run = analyze(client, messages, "test period")
+    text = "\n".join(run.summary_lines())
+    assert "Batches valid on first attempt: 1 of 1" in text
+    assert "Model requests: 1" in text
+    assert "Candidates rejected: 0" in text
+
+
+def test_first_attempt_reasons_survive_a_successful_repair(messages):
+    """A recovered batch still reports why the first attempt was rejected."""
+    client = FakeClient(
+        [
+            {"signals": [candidate(supporting_message_ids=["999999"])]},
+            {"signals": [candidate()]},
+        ]
+    )
+    run = analyze(client, messages, "test period")
+
+    assert len(run.signals) == 1
+    assert run.repairs_recovered == 1
+    assert [r.kind for r in run.rejections] == ["unknown_message_ids"]
+    assert "first attempt" in str(run.rejections[0])
