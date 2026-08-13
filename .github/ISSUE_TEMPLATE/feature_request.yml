@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a focused change.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What can you not do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Keep it as small as it can be while still solving the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: cost
+    attributes:
+      label: New dependencies or stored data
+      description: Would this add a dependency, a config option, or change what is stored?

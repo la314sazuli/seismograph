@@ -1,0 +1,30 @@
+name: Bug report
+description: Something does not behave as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Include the command you ran and what you observed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Python version and commit or release
+    validations:
+      required: true
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: Data
+      options:
+        - label: This report contains no real Discord messages, user data, or credentials.
+          required: true
