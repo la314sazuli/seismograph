@@ -1,0 +1,147 @@
+{
+  "note": "Recorded structured analysis for the synthetic messages above. Fictional.",
+  "signals": [
+    {
+      "title": "Saved workspace filters reset after reopening",
+      "category": "broken",
+      "product_surface": "saved filters",
+      "expected": "Saved filters should still be present the next time the workspace is opened.",
+      "observed": "Users report that saved filters are missing after closing and reopening the workspace, while a plain refresh keeps them.",
+      "severity": 4,
+      "confidence": 0.88,
+      "supporting_message_ids": [
+        "900000000000000137",
+        "900000000000000274",
+        "900000000000000411",
+        "900000000000000548",
+        "900000000000000685",
+        "900000000000000822",
+        "900000000000000959",
+        "900000000000001096",
+        "900000000000001233"
+      ],
+      "representative_message_ids": [
+        "900000000000000137",
+        "900000000000000274",
+        "900000000000000411"
+      ],
+      "evidence_rationale": "Independent reports from different users describing the same loss of saved filters across a reopen rather than a refresh.",
+      "suggested_next_step": "Attempt reproduction by saving filters, fully closing the workspace, and reopening it in a new session."
+    },
+    {
+      "title": "Bulk export completes without producing a file",
+      "category": "blocked",
+      "product_surface": "bulk export",
+      "expected": "Starting a bulk export should produce a downloadable file.",
+      "observed": "One user repeatedly reports that bulk export appears to finish but no file is produced and no error is shown.",
+      "severity": 4,
+      "confidence": 0.62,
+      "supporting_message_ids": [
+        "900000000000001370",
+        "900000000000001507",
+        "900000000000001644",
+        "900000000000001781",
+        "900000000000001918",
+        "900000000000002055",
+        "900000000000002192",
+        "900000000000002329",
+        "900000000000002466",
+        "900000000000002603",
+        "900000000000002740",
+        "900000000000002877",
+        "900000000000003014",
+        "900000000000003151"
+      ],
+      "representative_message_ids": [
+        "900000000000001370",
+        "900000000000001507",
+        "900000000000001644"
+      ],
+      "evidence_rationale": "All supporting messages come from a single account, so the reports are consistent but narrow.",
+      "suggested_next_step": "Check export job logs for silent failures and confirm whether the behaviour is account specific."
+    },
+    {
+      "title": "Two-factor setup rejects valid authenticator codes",
+      "category": "blocked",
+      "product_surface": "two-factor enrolment",
+      "expected": "A correct authenticator code should complete two-factor enrolment.",
+      "observed": "Several users report that every code entered during two-factor setup is rejected as invalid, including after generating a fresh secret.",
+      "severity": 5,
+      "confidence": 0.79,
+      "supporting_message_ids": [
+        "900000000000003288",
+        "900000000000003425",
+        "900000000000003562",
+        "900000000000003699",
+        "900000000000003836",
+        "900000000000003973"
+      ],
+      "representative_message_ids": [
+        "900000000000003288",
+        "900000000000003425",
+        "900000000000003562"
+      ],
+      "evidence_rationale": "Four distinct accounts described the same rejection within a short window, one of them noting a synchronised clock.",
+      "suggested_next_step": "Verify the enrolment code verification window and secret storage for recently created enrolments."
+    },
+    {
+      "title": "Mobile application startup time improved",
+      "category": "praise",
+      "product_surface": "mobile app startup",
+      "expected": "unknown",
+      "observed": "Several users independently report that the mobile application now opens noticeably faster than before.",
+      "severity": 1,
+      "confidence": 0.83,
+      "supporting_message_ids": [
+        "900000000000004110",
+        "900000000000004247",
+        "900000000000004384",
+        "900000000000004521",
+        "900000000000004658"
+      ],
+      "representative_message_ids": [
+        "900000000000004110",
+        "900000000000004247",
+        "900000000000004384"
+      ],
+      "evidence_rationale": "Unprompted positive reports from separate accounts about the same startup behaviour.",
+      "suggested_next_step": "Confirm which change affected cold start so the improvement is not regressed later."
+    },
+    {
+      "title": "Search may return previously deleted results",
+      "category": "broken",
+      "product_surface": "search",
+      "expected": "Deleted items should not appear in search results.",
+      "observed": "Two users vaguely recall seeing deleted items in search results, and neither could describe how to reproduce it.",
+      "severity": 3,
+      "confidence": 0.34,
+      "supporting_message_ids": [
+        "900000000000004795",
+        "900000000000004932"
+      ],
+      "representative_message_ids": [
+        "900000000000004795",
+        "900000000000004932"
+      ],
+      "evidence_rationale": "Only two uncertain reports with no reproduction details.",
+      "suggested_next_step": "Ask both reporters for approximate timestamps before investigating index invalidation."
+    }
+  ],
+  "previous_message_counts": [
+    [
+      "Saved workspace filters reset after reopening",
+      "broken",
+      5
+    ],
+    [
+      "Bulk export completes without producing a file",
+      "blocked",
+      12
+    ],
+    [
+      "Mobile application startup time improved",
+      "praise",
+      2
+    ]
+  ]
+}
