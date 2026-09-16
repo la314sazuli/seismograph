@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from discord.utils import escape_markdown
+
 from .analysis import PreparedMessage
 from .scoring import Signal
 
@@ -108,9 +110,9 @@ def build_report(
         period_label=period_label,
         message_count=len(messages),
         contributor_count=len({message.author_hash for message in messages}),
-        tremors=tremors,
-        emerging=emerging,
-        counter_signals=counter_signals,
+        tremors=tremors[:10],
+        emerging=emerging[:3],
+        counter_signals=counter_signals[:3],
         needs_review=sorted(
             needs_review, key=lambda s: (-s.distinct_users, -s.message_count, s.title)
         )[:MAX_REVIEW_SIGNALS],
@@ -129,7 +131,7 @@ def _evidence_lines(
     for message_id in signal.representative_message_ids:
         channel_id = channel_by_message.get(message_id)
         if channel_id is None:
-            continue
+            raise ValueError("Report evidence is missing from the analyzed input")
         lines.append(f"- {jump_link(guild_id, channel_id, message_id)}")
     return lines
 
@@ -139,29 +141,34 @@ def _render_signal(
     position: int,
     guild_id: int,
     channel_by_message: dict[str, str],
+    ranked: bool = True,
 ) -> str:
     parts = [
-        f"### {position}. {signal.title}",
+        f"### {position}. {escape_markdown(signal.title)}",
         "",
         f"Category: {signal.category}",
-        f"Product surface: {signal.surface}",
+        f"Product surface: {escape_markdown(signal.surface)}",
         f"Tremor Score: {signal.tremor_score}/100",
         f"Distinct users: {signal.distinct_users}",
         f"Supporting messages: {signal.message_count}",
         f"Trend: {signal.trend}",
         f"Severity: {signal.severity}/5",
         f"Confidence: {signal.confidence:.2f}",
+        f"First observed: {signal.first_seen}",
+        f"Last observed: {signal.last_seen}",
         "",
-        f"Expected: {signal.expected}",
-        f"Reported: {signal.observed}",
+        f"Expected: {escape_markdown(signal.expected)}",
+        f"Reported: {escape_markdown(signal.observed)}",
     ]
+    if not ranked:
+        parts = [line for line in parts if not line.startswith("Tremor Score:")]
     if signal.evidence_rationale:
-        parts.append(f"Why these messages: {signal.evidence_rationale}")
+        parts.append(f"Why these messages: {escape_markdown(signal.evidence_rationale)}")
     evidence = _evidence_lines(signal, guild_id, channel_by_message)
     if evidence:
         parts += ["", "Evidence:", *evidence]
     if signal.suggested_next_step:
-        parts += ["", f"Suggested next step: {signal.suggested_next_step}"]
+        parts += ["", f"Suggested next step: {escape_markdown(signal.suggested_next_step)}"]
     return "\n".join(parts)
 
 
@@ -183,6 +190,7 @@ def render_markdown(
                 f"Messages analyzed: {report.message_count:,}",
                 f"Distinct contributors: {report.contributor_count:,}",
                 f"Signals with sufficient evidence: {report.published_signal_count}",
+                "Showing up to 10 tremors, 3 emerging signals and 3 counter-signals.",
             ]
         )
     ]
@@ -216,13 +224,12 @@ def render_markdown(
         review = [
             "## Needs Human Review",
             "",
-            "Unconfirmed. Below the confidence threshold and excluded from the ranking.",
+            "Unconfirmed. Below the evidence threshold and excluded from the ranking.",
             "",
         ]
         review += [
-            f"- {signal.title} — {signal.distinct_users} user(s), "
-            f"{signal.message_count} message(s), confidence {signal.confidence:.2f}"
-            for signal in report.needs_review
+            _render_signal(signal, i, guild_id, channel_by_message, ranked=False)
+            for i, signal in enumerate(report.needs_review, 1)
         ]
         blocks.append("\n".join(review))
 

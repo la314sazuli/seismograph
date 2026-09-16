@@ -5,20 +5,33 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
       - run: python -m seismograph demo
+      - run: python -m seismograph investigate-demo
+      - run: python -m seismograph changes-demo
+      - run: python -m seismograph review-demo
+      - run: python -m seismograph evaluate --output /tmp/evaluation-smoke.json
+      - run: python tools/blind_review.py prepare --output /tmp/fresh-review
+      - run: python tools/benchmark.py --messages 20000
 
   docker:
     runs-on: ubuntu-latest
@@ -27,6 +40,14 @@ jobs:
       - run: docker build -t seismograph:ci .
       - name: Demo runs in the image
         run: docker run --rm seismograph:ci demo
+      - name: Investigation demo runs in the image
+        run: docker run --rm seismograph:ci investigate-demo
+      - name: Case changes demo runs in the image
+        run: docker run --rm seismograph:ci changes-demo
+      - name: Staff review demo runs in the image
+        run: docker run --rm seismograph:ci review-demo
+      - name: Offline evaluator and packaged fixtures run in the image
+        run: docker run --rm seismograph:ci evaluate --output /tmp/evaluation-smoke.json
       - name: Image runs as a non-root user
         run: test "$(docker run --rm --entrypoint id seismograph:ci -u)" = "10001"
       - name: Missing configuration fails instead of starting

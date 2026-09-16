@@ -10,9 +10,14 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 python -m seismograph demo
+python -m seismograph changes-demo
+python -m seismograph review-demo
 ```
 
-The demo and the test suite both run without a Discord token or an API key.
+The demos and the test suite run without a Discord token or an API key.
+Keep feature development reproducible offline; provider or server access is
+not a prerequisite for contributing code and regression tests. Never present
+recorded outputs as real-model results.
 
 ## Making a change
 

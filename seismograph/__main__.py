@@ -30,12 +30,23 @@ def configure_logging(verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # Library debug output can include request URLs and raw gateway payloads.
+    for name in ("discord", "httpx", "httpcore", "aiohttp"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def cmd_run(_: argparse.Namespace) -> int:
+    import fcntl
+
     from .bot import build_client
 
     config = load_config()
+    if os.environ.get("LLM_PROCESSING_APPROVED", "").lower() != "true":
+        raise ConfigError(
+            "Set LLM_PROCESSING_APPROVED=true only after completing the rollout checklist"
+        )
+    os.umask(0o077)
+    Path(config.database_path).parent.mkdir(parents=True, exist_ok=True)
     log.info(
         "starting: %d source channel(s), timezone %s, window %d day(s), retention %d day(s)",
         len(config.source_channel_ids),
@@ -43,17 +54,48 @@ def cmd_run(_: argparse.Namespace) -> int:
         config.analysis_days,
         config.retention_days,
     )
-    client = build_client(config)
-    client.run(config.discord_token, log_handler=None)
-    return 0
+    with open(config.database_path + ".lock", "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ConfigError("Another bot process is using DATABASE_PATH") from None
+        client = build_client(config)
+        client.run(config.discord_token, log_handler=None)
+    return 1 if client.startup_failed else 0
 
 
 def cmd_prune(args: argparse.Namespace) -> int:
-    config = load_config()
-    connection = storage.connect(config.database_path)
-    days = args.days or config.retention_days
-    deleted = storage.prune(connection, days)
+    connection = storage.connect(os.environ.get("DATABASE_PATH", "seismograph.db"))
+    days = args.days if args.days is not None else int(os.environ.get("RETENTION_DAYS", "30"))
+    try:
+        deleted = storage.prune(connection, days)
+    finally:
+        connection.close()
     print(f"Deleted {deleted} message(s) older than {days} day(s).")
+    return 0
+
+
+def cmd_runs(args: argparse.Namespace) -> int:
+    connection = storage.connect(os.environ.get("DATABASE_PATH", "seismograph.db"))
+    try:
+        if args.retry is not None:
+            cursor = connection.execute(
+                "DELETE FROM runs WHERE id = ? AND status = 'failed' AND kind = 'scheduled'",
+                (args.retry,),
+            )
+            connection.commit()
+            if cursor.rowcount != 1:
+                print(
+                    "Only a failed, pre-publication scheduled run can be retried.", file=sys.stderr
+                )
+                return 2
+            print("Failed run cleared; the next scheduler tick can retry it.")
+        for row in connection.execute(
+            "SELECT id, kind, period_start, period_end, status FROM runs ORDER BY id DESC LIMIT 20"
+        ):
+            print(" | ".join(str(v) for v in row))
+    finally:
+        connection.close()
     return 0
 
 
@@ -73,7 +115,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
         except ConfigError as exc:
             print(f"Live demo needs full configuration: {exc}", file=sys.stderr)
             return 2
-        client = LLMClient(config.llm_base_url, config.llm_api_key, config.llm_model)
+        client = LLMClient.from_config(config)
         from .analysis import analyze
 
         try:
@@ -127,10 +169,55 @@ def cmd_period(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_investigate_demo(_: argparse.Namespace) -> int:
+    from .case_demo import run
+
+    print(run(), end="")
+    return 0
+
+
+def cmd_research(args: argparse.Namespace) -> int:
+    from .research import research_public
+
+    config = load_config()
+    try:
+        result = research_public(
+            config, args.query, tuple(args.domains.split(",")), approved=args.approved_public_query
+        )
+    except AnalysisError as exc:
+        print(f"Research stopped: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    from .evaluation import register as register_evaluation
+
     parser = argparse.ArgumentParser(prog="seismograph", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    register_evaluation(subparsers)
+
+    def changes_demo(_args):
+        from .case_history_demo import run
+
+        print(run(), end="")
+        return 0
+
+    subparsers.add_parser(
+        "changes-demo", help="Replay fictional case changes without credentials or a model."
+    ).set_defaults(handler=changes_demo)
+
+    def review_demo(_args):
+        from .case_review_demo import run
+
+        print(run(), end="")
+        return 0
+
+    subparsers.add_parser(
+        "review-demo", help="Replay staff corrections and withdrawals without any connection."
+    ).set_defaults(handler=review_demo)
 
     subparsers.add_parser("run", help="Run the Discord bot.").set_defaults(handler=cmd_run)
 
@@ -141,10 +228,26 @@ def main(argv: list[str] | None = None) -> int:
         help="Call the configured LLM instead of the recorded fixture analysis.",
     )
     demo.set_defaults(handler=cmd_demo)
+    subparsers.add_parser(
+        "investigate-demo", help="Run a fictional investigation and fix-verification scenario."
+    ).set_defaults(handler=cmd_investigate_demo)
+    research = subparsers.add_parser(
+        "research-public", help="Explicitly research a public topic through Sonar; paid API call."
+    )
+    research.add_argument("query")
+    research.add_argument(
+        "--domains", required=True, help="Comma-separated public domain allowlist."
+    )
+    research.add_argument("--approved-public-query", action="store_true")
+    research.set_defaults(handler=cmd_research)
 
     prune = subparsers.add_parser("prune", help="Delete messages past the retention window.")
     prune.add_argument("--days", type=int, help="Override RETENTION_DAYS.")
     prune.set_defaults(handler=cmd_prune)
+
+    runs = subparsers.add_parser("runs", help="Inspect runs; retry only failed scheduled runs.")
+    runs.add_argument("--retry", type=int, metavar="ID")
+    runs.set_defaults(handler=cmd_runs)
 
     subparsers.add_parser("period", help="Print the current analysis period.").set_defaults(
         handler=cmd_period

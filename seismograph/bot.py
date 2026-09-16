@@ -1,33 +1,22 @@
-"""Discord integration."""
-
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands
 from discord.ext import tasks
 
 from . import storage
-from .analysis import AnalysisError, LLMClient
+from .analysis import AnalysisError, LLMClient, prepare
+from .case_commands import register as register_case_commands
 from .config import Config
-from .pipeline import analysis_period, generate_report, period_label, utc_iso
+from .pipeline import analysis_period, generate_report, period_label, scheduled_period, utc_iso
 from .privacy import hash_author, redact
-from .report import (
-    FEEDBACK_REACTIONS,
-    InsufficientEvidence,
-    render_markdown,
-    split_for_discord,
-)
+from .report import FEEDBACK_REACTIONS, InsufficientEvidence, render_markdown, split_for_discord
 
 log = logging.getLogger(__name__)
-
-# Weekly schedule: checked hourly, fires on the first matching hour of the week.
-SCHEDULE_WEEKDAY = 0  # Monday
-SCHEDULE_HOUR = 9
-
 FEEDBACK_EMOJI = {emoji for emoji, _ in FEEDBACK_REACTIONS}
 
 
@@ -36,18 +25,26 @@ def build_client(config: Config) -> SeismographClient:
     intents.guilds = True
     intents.guild_messages = True
     intents.message_content = True
-    intents.reactions = True
+    intents.guild_reactions = True
     return SeismographClient(config, intents=intents)
 
 
 class SeismographClient(discord.Client):
     def __init__(self, config: Config, *, intents: discord.Intents):
-        super().__init__(intents=intents)
+        super().__init__(
+            intents=intents,
+            member_cache_flags=discord.MemberCacheFlags.none(),
+            chunk_guilds_at_startup=False,
+            max_messages=None,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
         self.config = config
         self.tree = app_commands.CommandTree(self)
         self.connection = storage.connect(config.database_path)
-        self.llm = LLMClient(config.llm_base_url, config.llm_api_key, config.llm_model)
+        self.report_lock = asyncio.Lock()
+        self.startup_failed = False
         self._register_commands()
+        register_case_commands(self)
 
     async def setup_hook(self) -> None:
         guild = discord.Object(id=self.config.guild_id)
@@ -55,163 +52,324 @@ class SeismographClient(discord.Client):
         await self.tree.sync(guild=guild)
         self.weekly_check.start()
 
+    async def close(self) -> None:
+        self.weekly_check.cancel()
+        await super().close()
+        self.connection.close()
+
     async def on_ready(self) -> None:
-        log.info(
-            "connected as %s, watching %d channel(s), reporting to %s",
-            self.user,
-            len(self.config.source_channel_ids),
-            self.config.report_channel_id,
-        )
+        try:
+            await self.preflight()
+        except (AnalysisError, discord.HTTPException) as exc:
+            self.startup_failed = True
+            log.error(
+                "startup preflight failed: %s",
+                str(exc) if isinstance(exc, AnalysisError) else type(exc).__name__,
+            )
+            await self.close()
+            return
+        log.info("ready; sources=%d, member cache disabled", len(self.config.source_channel_ids))
+
+    async def preflight(self) -> discord.TextChannel:
+        guild = self.get_guild(self.config.guild_id)
+        if guild is None or guild.me is None:
+            raise AnalysisError("Configured guild is unavailable to the bot")
+        report = await self.fetch_channel(self.config.report_channel_id)
+        if not isinstance(report, discord.TextChannel) or report.guild.id != guild.id:
+            raise AnalysisError("Report destination must be a text channel in the configured guild")
+        if report.permissions_for(guild.default_role).view_channel:
+            raise AnalysisError("Report channel is visible to @everyone; restrict it to staff")
+        permissions = report.permissions_for(guild.me)
+        if not all(
+            (
+                permissions.view_channel,
+                permissions.send_messages,
+                permissions.read_message_history,
+                permissions.add_reactions,
+            )
+        ):
+            raise AnalysisError("Report channel needs view, send, history and reaction permissions")
+        for channel_id in self.config.source_channel_ids:
+            channel = await self.fetch_channel(channel_id)
+            if (
+                not isinstance(channel, (discord.TextChannel, discord.Thread))
+                or channel.guild.id != guild.id
+                or (isinstance(channel, discord.Thread) and channel.is_private())
+            ):
+                raise AnalysisError("Sources must be explicit text channels or public thread ids")
+            permissions = channel.permissions_for(guild.me)
+            if not permissions.view_channel or not permissions.read_message_history:
+                raise AnalysisError(f"Source {channel_id} needs view and history permissions")
+        return report
+
+    def eligible(self, guild_id: int | None, channel_id: int) -> bool:
+        return guild_id == self.config.guild_id and channel_id in self.config.source_channel_ids
+
+    def row(self, message: discord.Message) -> dict:
+        return {
+            "message_id": str(message.id),
+            "channel_id": str(message.channel.id),
+            "author_hash": hash_author(message.author.id, self.config.author_hash_salt),
+            "created_at": utc_iso(message.created_at),
+            "content": redact(message.content or ""),
+        }
 
     async def on_message(self, message: discord.Message) -> None:
-        """Store messages from allowlisted guild channels only."""
-        if message.guild is None or message.guild.id != self.config.guild_id:
-            return
-        if message.channel.id not in self.config.source_channel_ids:
+        if not self.eligible(getattr(message.guild, "id", None), message.channel.id):
             return
         if message.author.bot:
             return
-        content = redact(message.content or "")
-        if not content.strip():
+        if isinstance(message.channel, discord.Thread) and message.channel.is_private():
             return
-        storage.store_messages(
-            self.connection,
-            [
-                {
-                    "message_id": str(message.id),
-                    "channel_id": str(message.channel.id),
-                    "author_hash": hash_author(message.author.id, self.config.author_hash_salt),
-                    "created_at": utc_iso(message.created_at),
-                    "content": content,
-                }
-            ],
-        )
+        row = self.row(message)
+        if row["content"].strip():
+            storage.store_messages(self.connection, [row])
+
+    async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
+        if not self.eligible(payload.guild_id, payload.channel_id) or "content" not in payload.data:
+            return
+        # Invalidate previously derived signals even when the new message is empty.
+        storage.forget_messages(self.connection, [str(payload.message_id)])
+        try:
+            channel = await self.fetch_channel(payload.channel_id)
+            message = await channel.fetch_message(payload.message_id)
+            await self.on_message(message)
+        except discord.HTTPException as exc:
+            log.warning("edit refresh failed: %s", type(exc).__name__)
+
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
+        if self.eligible(payload.guild_id, payload.channel_id):
+            storage.forget_messages(self.connection, [str(payload.message_id)])
+
+    async def on_raw_bulk_message_delete(self, payload: discord.RawBulkMessageDeleteEvent) -> None:
+        if self.eligible(payload.guild_id, payload.channel_id):
+            storage.forget_messages(self.connection, [str(i) for i in payload.message_ids])
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
-        """Record maintainer feedback reactions on a published report."""
-        emoji = str(payload.emoji)
-        if emoji not in FEEDBACK_EMOJI or payload.user_id == getattr(self.user, "id", None):
+        if (
+            payload.guild_id != self.config.guild_id
+            or payload.channel_id != self.config.report_channel_id
+            or str(payload.emoji) not in FEEDBACK_EMOJI
+            or payload.member is None
+            or payload.member.bot
+            or not payload.member.guild_permissions.administrator
+        ):
             return
         run_id = storage.run_for_report_message(self.connection, str(payload.message_id))
-        if run_id is None:
+        if run_id is not None:
+            storage.record_feedback(
+                self.connection,
+                run_id,
+                str(payload.emoji),
+                hash_author(payload.user_id, self.config.author_hash_salt),
+            )
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
+        if payload.guild_id != self.config.guild_id:
             return
-        storage.record_feedback(
-            self.connection,
-            run_id,
-            emoji,
-            hash_author(payload.user_id, self.config.author_hash_salt),
-        )
-        log.info("recorded feedback %s for run %d", emoji, run_id)
+        run_id = storage.run_for_report_message(self.connection, str(payload.message_id))
+        if run_id is not None:
+            self.connection.execute(
+                "DELETE FROM feedback WHERE run_id = ? AND emoji = ? AND author_hash = ?",
+                (
+                    run_id,
+                    str(payload.emoji),
+                    hash_author(payload.user_id, self.config.author_hash_salt),
+                ),
+            )
+            self.connection.commit()
 
     def _register_commands(self) -> None:
-        @self.tree.command(
-            name="seismograph",
-            description="Generate a friction report for the current analysis period.",
-        )
+        @self.tree.command(name="seismograph", description="Generate a staff friction report.")
+        @app_commands.guild_only()
         @app_commands.default_permissions(administrator=True)
         @app_commands.checks.has_permissions(administrator=True)
         async def seismograph(interaction: discord.Interaction) -> None:
-            await interaction.response.defer(ephemeral=True, thinking=True)
+            if interaction.guild_id != self.config.guild_id:
+                return
+            await interaction.response.defer(ephemeral=True)
             start, end = analysis_period(
                 datetime.now(UTC), self.config.report_timezone, self.config.analysis_days
             )
-            label = period_label(start, end, self.config.report_timezone)
-            try:
-                await self.publish(kind="manual", start=start, end=end, label=label)
-            except InsufficientEvidence:
-                await interaction.followup.send(
-                    f"Analyzed {label}. No signal met the evidence thresholds; nothing was posted.",
-                    ephemeral=True,
-                )
-                return
-            except AnalysisError as exc:
-                log.error("manual report failed: %s", exc)
-                await interaction.followup.send(
-                    f"Analysis failed for {label}: {exc}. Nothing was posted.", ephemeral=True
-                )
-                return
             await interaction.followup.send(
-                f"Posted a report for {label} in <#{self.config.report_channel_id}>.",
+                f"Report requested for [{start}, {end}). Results or failures appear in the "
+                "operator logs; successful reports go to the configured staff channel.",
+                ephemeral=True,
+            )
+            await self.attempt_report("manual", start, end)
+
+        @self.tree.command(
+            name="seismograph_optout", description="Delete my local data and opt out."
+        )
+        @app_commands.guild_only()
+        async def optout(interaction: discord.Interaction) -> None:
+            if interaction.guild_id != self.config.guild_id:
+                return
+            storage.opt_out(
+                self.connection, hash_author(interaction.user.id, self.config.author_hash_salt)
+            )
+            await interaction.response.send_message(
+                "Your local messages and feedback were deleted; future messages will be excluded. "
+                "Ask staff to remove any already-posted reports or provider-retained data.",
                 ephemeral=True,
             )
 
     async def collect_history(self, start: str, end: str) -> int:
-        """Backfill stored messages for the period from the allowlisted channels."""
-        after = datetime.fromisoformat(start)
-        before = datetime.fromisoformat(end)
-        stored = 0
+        after, before = datetime.fromisoformat(start), datetime.fromisoformat(end)
+        scanned = stored = 0
         for channel_id in self.config.source_channel_ids:
-            channel = self.get_channel(channel_id)
-            if not isinstance(channel, discord.TextChannel):
-                log.warning("channel %s is not a readable text channel, skipping", channel_id)
-                continue
-            batch = []
-            async for message in channel.history(after=after, before=before, limit=None):
+            channel = await self.fetch_channel(channel_id)
+            batch, seen = [], set()
+            async for message in channel.history(
+                after=discord.Object(id=discord.utils.time_snowflake(after, high=False) - 1),
+                before=before,
+                oldest_first=True,
+                limit=self.config.max_messages - scanned + 1,
+            ):
+                scanned += 1
+                if scanned > self.config.max_messages:
+                    raise AnalysisError(
+                        "History exceeds MAX_MESSAGES; no partial report will be sent"
+                    )
                 if message.author.bot:
                     continue
-                content = redact(message.content or "")
-                if not content.strip():
+                row = self.row(message)
+                if not row["content"].strip():
                     continue
-                batch.append(
-                    {
-                        "message_id": str(message.id),
-                        "channel_id": str(channel_id),
-                        "author_hash": hash_author(message.author.id, self.config.author_hash_salt),
-                        "created_at": utc_iso(message.created_at),
-                        "content": content,
-                    }
-                )
-            if batch:
-                stored += storage.store_messages(self.connection, batch)
-        log.info("collected %d new message(s) for %s to %s", stored, start, end)
+                seen.add(row["message_id"])
+                batch.append(row)
+                if len(batch) == 100:
+                    stored += storage.store_messages(self.connection, batch)
+                    batch.clear()
+                    await asyncio.sleep(0)
+            stored += storage.store_messages(self.connection, batch)
+            existing = storage.messages_between(
+                self.connection, start, end, (channel_id,), self.config.max_messages + 1
+            )
+            storage.forget_messages(
+                self.connection, [r["message_id"] for r in existing if r["message_id"] not in seen]
+            )
+        log.info("history scanned=%d changed=%d", scanned, stored)
         return stored
 
-    async def publish(self, kind: str, start: str, end: str, label: str) -> None:
-        """Generate and post a report, or raise without posting anything."""
-        channel = self.get_channel(self.config.report_channel_id)
-        if not isinstance(channel, discord.abc.Messageable):
-            raise AnalysisError(f"report channel {self.config.report_channel_id} is not writable")
-
-        await self.collect_history(start, end)
-        run_id, report, messages, analysis = generate_report(
-            self.connection, self.llm, kind, start, end, label
-        )
-        for line in analysis.summary_lines():
-            log.info("%s", line)
-        for rejection in analysis.rejections:
-            log.info("rejected candidate: %s", rejection)
-
-        markdown = render_markdown(report, self.config.guild_id, messages)
-        chunks = split_for_discord(markdown)
-        first = None
-        for chunk in chunks:
-            sent = await channel.send(chunk)
-            first = first or sent
-        for emoji, _ in FEEDBACK_REACTIONS:
-            await first.add_reaction(emoji)
-        storage.mark_published(self.connection, run_id, str(first.id))
-        log.info("published run %d as %d message(s)", run_id, len(chunks))
-
-    @tasks.loop(hours=1)
-    async def weekly_check(self) -> None:
-        """Run the weekly report once per period, at most once per stored period."""
-        local_now = datetime.now(ZoneInfo(self.config.report_timezone))
-        if local_now.weekday() != SCHEDULE_WEEKDAY or local_now.hour != SCHEDULE_HOUR:
-            return
-        start, end = analysis_period(
-            datetime.now(UTC), self.config.report_timezone, self.config.analysis_days
-        )
-        if storage.scheduled_run_exists(self.connection, start, end):
-            log.info("scheduled report for %s to %s already exists, skipping", start, end)
-            return
-        label = period_label(start, end, self.config.report_timezone)
+    def analyze_period(self, kind: str, start: str, end: str, run_id: int):
+        connection = storage.connect(self.config.database_path)
         try:
-            await self.publish(kind="scheduled", start=start, end=end, label=label)
+            llm = LLMClient.from_config(self.config)
+            return generate_report(
+                connection,
+                llm,
+                kind,
+                start,
+                end,
+                period_label(start, end, self.config.report_timezone),
+                self.config.source_channel_ids,
+                self.config.max_messages,
+                run_id,
+            )
+        finally:
+            connection.close()
+
+    async def publish(self, kind: str, start: str, end: str) -> None:
+        if self.report_lock.locked():
+            raise AnalysisError("A report is already running; request was not queued")
+        async with self.report_lock:
+            channel = await self.preflight()
+            run_id = storage.start_run(self.connection, kind, start, end)
+            sending = False
+            try:
+                await self.collect_history(start, end)
+                _, report, messages, analysis = await asyncio.to_thread(
+                    self.analyze_period, kind, start, end, run_id
+                )
+                for line in analysis.summary_lines():
+                    log.info("%s", line)
+                channel = await self.preflight()
+                # An opt-out, deletion or edit during analysis invalidates its snapshot.
+                current = storage.messages_between(
+                    self.connection,
+                    start,
+                    end,
+                    self.config.source_channel_ids,
+                    self.config.max_messages + 1,
+                )
+                current_prepared = {m.message_id: m.content for m in prepare(current)}
+                if any(current_prepared.get(m.message_id) != m.content for m in messages):
+                    self.connection.execute("DELETE FROM signals WHERE run_id = ?", (run_id,))
+                    self.connection.commit()
+                    raise AnalysisError("Evidence changed during analysis; rerun the report")
+                chunks = split_for_discord(render_markdown(report, self.config.guild_id, messages))
+                # Persist before sending: a crash or ambiguous timeout must not trigger a repost.
+                storage.set_status(self.connection, run_id, "sending")
+                sending = True
+                first = None
+                for chunk in chunks:
+                    if first is not None:
+                        # Discord sends yield to privacy events. Never send the
+                        # remaining chunks from an invalidated source snapshot.
+                        try:
+                            storage.validate_snapshot(self.connection, messages)
+                        except AnalysisError:
+                            self.connection.execute(
+                                "DELETE FROM signals WHERE run_id = ?", (run_id,)
+                            )
+                            self.connection.commit()
+                            raise
+                    sent = await channel.send(chunk, suppress_embeds=True)
+                    first = first or sent
+                    self.connection.execute(
+                        "UPDATE runs SET report_message_id = ? WHERE id = ?",
+                        (str(first.id), run_id),
+                    )
+                    self.connection.commit()
+                storage.mark_published(self.connection, run_id, str(first.id))
+            except InsufficientEvidence:
+                storage.set_status(self.connection, run_id, "empty")
+                raise
+            except Exception:
+                storage.set_status(self.connection, run_id, "uncertain" if sending else "failed")
+                raise
+            for emoji, _ in FEEDBACK_REACTIONS:
+                try:
+                    await first.add_reaction(emoji)
+                except discord.HTTPException:
+                    log.warning("report %d published, but reaction setup failed", run_id)
+                    break
+            log.info("published run=%d messages=%d", run_id, len(chunks))
+
+    async def attempt_report(self, kind: str, start: str, end: str) -> None:
+        try:
+            await self.publish(kind, start, end)
         except InsufficientEvidence:
-            log.info("scheduled report for %s skipped: insufficient evidence", label)
-        except AnalysisError as exc:
-            log.error("scheduled report for %s failed: %s", label, exc)
-        storage.prune(self.connection, self.config.retention_days)
+            log.info("report %s to %s empty; nothing posted", start, end)
+        except (AnalysisError, discord.HTTPException) as exc:
+            log.error(
+                "report %s to %s failed: %s",
+                start,
+                end,
+                str(exc) if isinstance(exc, AnalysisError) else type(exc).__name__,
+            )
+        except Exception as exc:
+            log.error(
+                "report %s to %s failed: %s; inspect run status", start, end, type(exc).__name__
+            )
+
+    @tasks.loop(minutes=5)
+    async def weekly_check(self) -> None:
+        try:
+            if not self.report_lock.locked():
+                storage.prune(self.connection, self.config.retention_days)
+            start, end = scheduled_period(
+                datetime.now(UTC),
+                self.config.report_timezone,
+                self.config.analysis_days,
+                self.config.report_weekday,
+                self.config.report_hour,
+            )
+            if not storage.scheduled_run_exists(self.connection, start, end):
+                await self.attempt_report("scheduled", start, end)
+        except Exception as exc:
+            log.error("maintenance failed: %s", type(exc).__name__)
 
     @weekly_check.before_loop
     async def before_weekly_check(self) -> None:

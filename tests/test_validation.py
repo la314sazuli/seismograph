@@ -214,13 +214,9 @@ def test_invalid_output_gets_exactly_one_repair_attempt(messages):
             {"signals": [candidate(supporting_message_ids=["888888"])]},
         ]
     )
-    run = analyze(client, messages, "test period")
-    assert run.signals == []
+    with pytest.raises(AnalysisError, match="after one repair"):
+        analyze(client, messages, "test period")
     assert len(client.calls) == 2
-    assert any("after repair" in str(reason) for reason in run.rejections)
-    assert run.repair_attempts == 1
-    assert run.repairs_recovered == 0
-    assert run.requests == 2
 
 
 def test_repair_attempt_can_succeed(messages):
@@ -332,7 +328,7 @@ def test_multiple_batches_are_counted_and_merged(monkeypatch, messages):
     run = analyze(client, messages, "test period")
 
     assert run.batches == 2
-    assert run.requests == 3
+    assert run.requests == 2  # Identical titles merge without spending a model request.
     assert run.merge_requested is True
     assert run.merge_fallback is False
     assert run.signals_before_merge == 2
@@ -341,7 +337,7 @@ def test_multiple_batches_are_counted_and_merged(monkeypatch, messages):
     assert run.largest_batch_chars > 0
 
 
-def test_merge_failure_falls_back_and_is_recorded(monkeypatch, messages):
+def test_merge_failure_stops_the_entire_report(monkeypatch, messages):
     monkeypatch.setattr(analysis, "batch", lambda msgs, **_: [msgs[:2], msgs[2:]])
 
     class FailingMerge(FakeClient):
@@ -356,16 +352,17 @@ def test_merge_failure_falls_back_and_is_recorded(monkeypatch, messages):
             {"signals": [candidate(supporting_message_ids=["101", "102"])]},
             {
                 "signals": [
-                    candidate(supporting_message_ids=["103"], representative_message_ids=["103"])
+                    candidate(
+                        title="A different description",
+                        supporting_message_ids=["103"],
+                        representative_message_ids=["103"],
+                    )
                 ]
             },
         ]
     )
-    run = analyze(client, messages, "test period")
-
-    assert run.merge_fallback is True
-    assert len(run.signals) == 1  # deterministic title merge combined both
-    assert [r.kind for r in run.rejections] == ["merge_request_failed"]
+    with pytest.raises(AnalysisError, match="503"):
+        analyze(client, messages, "test period")
 
 
 def test_rejection_counts_group_by_kind(messages):

@@ -1,0 +1,21 @@
+{
+  "evaluation_version": "fresh-v1",
+  "prepared_at_utc_date": "2026-09-16",
+  "production_revision_at_preparation": "525ca5dab2af13082afcea77ba0b064a1696caf6",
+  "status": "prepared_not_evaluated",
+  "authorship": "AI-authored by the implementation assistant; not independent human ground truth",
+  "exposure": "Public; not a secret holdout. Do not tune on this version and continue calling it held out.",
+  "file_sha256": {
+    "inputs.json": "c51cb8f629937c08b85e714d8c1de7c47df68c1c03a533769a58a0bb9c0dcabb",
+    "gold.json": "b8b1da4d29574d7eff791fa56a13adeb692abae3080910548bf852301321207d",
+    "../../seismograph/cases.py": "3a6589cec5dd8b0cbf9084e79b1fb7a23ca3a4e3fecfa942dca18a92d2abe359"
+  },
+  "investigation_prompt_sha256": "e0f8fe947330c89d234c442ce68cc5b36ae23eb7d18c62f7c3419dbb915d44c8",
+  "baseline_prompt_sha256": "783fab18d945cb8c544821f34b0cf9966572a8fb1db9f781a6568cfc607ecc0f",
+  "comparison_plan": "Same model and provider, investigation versus simple summary first; other providers separately",
+  "primary_assessment": "Two independent first-pass human reviews with provider metadata withheld",
+  "automatic_scores": "Diagnostic current-rule conformance only; not a fair score for the plain summary baseline",
+  "api_calls_performed": 0,
+  "human_reviews_performed": 0,
+  "note": "File hashes use raw bytes. Run input hashes use the evaluator's canonical JSON fingerprint. Preparation status is historical, not an automatically maintained live status."
+}

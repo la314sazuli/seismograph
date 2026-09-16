@@ -1,10 +1,11 @@
 [project]
 name = "seismograph"
-version = "0.1.0"
+version = "0.3.0"
 description = "An evidence-backed Discord product-intelligence bot that detects emerging user friction before it becomes an incident."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "discord.py>=2.4",
     "httpx>=0.27",
@@ -20,11 +21,12 @@ dev = [
 Source = "https://github.com/la314sazuli/seismograph"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["seismograph"]
+include-package-data = false
 
 [tool.setuptools.package-data]
 seismograph = ["fixtures/*.json"]

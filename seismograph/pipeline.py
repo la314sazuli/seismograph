@@ -8,9 +8,9 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import storage
-from .analysis import AnalysisRun, LLMClient, PreparedMessage, prepare
+from .analysis import AnalysisError, AnalysisRun, LLMClient, PreparedMessage, prepare
 from .analysis import analyze as run_analysis
-from .report import Report, build_report
+from .report import InsufficientEvidence, Report, build_report
 from .scoring import Signal, rank
 
 log = logging.getLogger(__name__)
@@ -36,6 +36,22 @@ def analysis_period(now: datetime, report_timezone: str, analysis_days: int) -> 
     return utc_iso(start_local), utc_iso(end_local)
 
 
+def scheduled_period(
+    now: datetime,
+    timezone: str,
+    days: int,
+    weekday: int = 0,
+    hour: int = 9,
+) -> tuple[str, str]:
+    local = now.astimezone(ZoneInfo(timezone))
+    due = (local - timedelta(days=(local.weekday() - weekday) % 7)).replace(
+        hour=hour, minute=0, second=0, microsecond=0
+    )
+    if due > local:
+        due -= timedelta(days=7)
+    return analysis_period(due, timezone, days)
+
+
 def period_label(start: str, end: str, report_timezone: str) -> str:
     zone = ZoneInfo(report_timezone)
     start_local = datetime.fromisoformat(start).astimezone(zone)
@@ -52,22 +68,36 @@ def generate_report(
     start: str,
     end: str,
     label: str,
+    channel_ids: tuple[int, ...] | None = None,
+    max_messages: int = 20_000,
+    run_id: int | None = None,
 ) -> tuple[int, Report, list[PreparedMessage], AnalysisRun]:
     """Run the full pipeline for one period.
 
     Raises InsufficientEvidence when nothing clears the evidence thresholds and
     AnalysisError when the model output cannot be trusted.
     """
-    stored = storage.messages_between(connection, start, end)
+    stored = storage.messages_between(connection, start, end, channel_ids, max_messages + 1)
+    if len(stored) > max_messages:
+        raise AnalysisError(
+            "MAX_MESSAGES exceeded; narrow the allowlist or raise the explicit limit"
+        )
     messages = prepare(stored)
     log.info("period %s to %s: %d stored, %d usable", start, end, len(stored), len(messages))
 
-    run_id = storage.start_run(connection, kind, start, end)
-    analysis = run_analysis(client, messages, label)
-    signals = apply_history(connection, run_id, analysis.signals)
-    signals = rank(signals, period_days=max(1, _period_days(start, end)))
-    report = build_report(signals, messages, label)
-    storage.save_signals(connection, run_id, signals)
+    run_id = run_id or storage.start_run(connection, kind, start, end)
+    try:
+        analysis = run_analysis(client, messages, label)
+        signals = apply_history(connection, run_id, analysis.signals)
+        signals = rank(signals, period_days=max(1, _period_days(start, end)))
+        report = build_report(signals, messages, label)
+        storage.save_signals(connection, run_id, signals, snapshot=messages)
+    except InsufficientEvidence:
+        storage.set_status(connection, run_id, "empty")
+        raise
+    except Exception:
+        storage.set_status(connection, run_id, "failed")
+        raise
     return run_id, report, messages, analysis
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass, replace
 
@@ -37,6 +38,10 @@ _NOISE = re.compile(
 
 class AnalysisError(Exception):
     """Raised when analysis cannot produce a trustworthy result."""
+
+
+class InvalidOutput(AnalysisError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -73,7 +78,12 @@ class AnalysisRun:
 
     def summary_lines(self) -> list[str]:
         """Human-readable measurements of how well the model followed the schema."""
-        clean = self.batches - self.repair_attempts
+        failed_batches = {
+            r.stage.split(" (")[0]
+            for r in self.rejections
+            if r.stage.startswith("batch ") and "first attempt" in r.stage
+        }
+        clean = self.batches - len(failed_batches)
         lines = [
             f"Messages analyzed: {self.messages} in {self.batches} batch(es); "
             f"largest batch {self.largest_batch_messages} message(s), "
@@ -145,7 +155,9 @@ def batch(
     current: list[PreparedMessage] = []
     size = 0
     for message in messages:
-        cost = len(message.content) + len(message.message_id) + 40
+        cost = len(message.content) + len(message.message_id) + len(message.created_at) + 8
+        if cost > max_chars:
+            raise AnalysisError("One message exceeds the batch budget; no content was truncated")
         if current and size + cost > max_chars:
             batches.append(current)
             current, size = [], 0
@@ -176,7 +188,7 @@ def validate_signals(
     messages, never taken from the model.
     """
     if not isinstance(raw, dict) or not isinstance(raw.get("signals"), list):
-        raise AnalysisError("model output is not an object with a 'signals' array")
+        raise InvalidOutput("model output is not an object with a 'signals' array")
 
     by_id = {message.message_id: message for message in messages}
     accepted: list[Signal] = []
@@ -192,18 +204,19 @@ def validate_signals(
         if not title:
             rejected.append(Rejection("missing_title", f"{label}: missing title"))
             continue
-        label = f"{title!r}"
-        title = title[:MAX_TITLE_CHARS]
+        title = redact(title)[:MAX_TITLE_CHARS]
 
         category = str(candidate.get("category", "")).strip().lower()
         if category not in CATEGORIES:
-            rejected.append(
-                Rejection("unknown_category", f"{label}: unknown category {category!r}")
-            )
+            rejected.append(Rejection("unknown_category", f"{label}: unknown category"))
             continue
 
         severity_value = _as_float(candidate.get("severity"))
-        if severity_value is None or not 1 <= severity_value <= 5:
+        if (
+            severity_value is None
+            or not 1 <= severity_value <= 5
+            or not severity_value.is_integer()
+        ):
             rejected.append(Rejection("severity_out_of_range", f"{label}: severity outside 1-5"))
             continue
         confidence = _as_float(candidate.get("confidence"))
@@ -259,14 +272,18 @@ def validate_signals(
             Signal(
                 title=title,
                 category=category,
-                surface=str(candidate.get("product_surface") or "unknown").strip()[:80]
+                surface=redact(str(candidate.get("product_surface") or "unknown")).strip()[:80]
                 or "unknown",
-                expected=str(candidate.get("expected") or "unknown").strip(),
-                observed=str(candidate.get("observed") or "unknown").strip(),
+                expected=redact(str(candidate.get("expected") or "unknown")).strip()[:400],
+                observed=redact(str(candidate.get("observed") or "unknown")).strip()[:400],
                 severity=round(severity_value),
                 confidence=round(confidence, 3),
-                evidence_rationale=str(candidate.get("evidence_rationale") or "").strip(),
-                suggested_next_step=str(candidate.get("suggested_next_step") or "unknown").strip(),
+                evidence_rationale=redact(str(candidate.get("evidence_rationale") or "")).strip()[
+                    :200
+                ],
+                suggested_next_step=redact(
+                    str(candidate.get("suggested_next_step") or "unknown")
+                ).strip()[:200],
                 supporting_message_ids=tuple(supporting),
                 representative_message_ids=tuple(representative),
                 distinct_users=len({message.author_hash for message in supporting_messages}),
@@ -319,11 +336,42 @@ def merge_candidates(signals: list[Signal]) -> list[Signal]:
 class LLMClient:
     """Minimal OpenAI-compatible chat-completions client."""
 
-    def __init__(self, base_url: str, api_key: str, model: str, timeout: float = 120.0):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        timeout: float = 60.0,
+        max_requests: int = 200,
+        provider: str = "openai",
+        response_schema: dict | None = None,
+        public_search_domains: tuple[str, ...] = (),
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        self.max_requests = max_requests
+        self.requests_used = 0
+        if provider not in {"openai", "sonar"}:
+            raise ValueError("Unsupported model provider")
+        if public_search_domains and provider != "sonar":
+            raise ValueError("Public research requires the Sonar adapter")
+        self.provider = provider
+        self.response_schema = response_schema
+        self.public_search_domains = public_search_domains
+        self.last_sources: list[dict] = []
+
+    @classmethod
+    def from_config(cls, config, *, schema: dict | None = None):
+        return cls(
+            config.llm_base_url,
+            config.llm_api_key,
+            config.llm_model,
+            max_requests=config.max_llm_requests,
+            provider=config.llm_provider,
+            response_schema=schema,
+        )
 
     def complete_json(self, system_prompt: str, user_prompt: str) -> object:
         """Return parsed JSON from one chat completion, or raise AnalysisError."""
@@ -331,20 +379,51 @@ class LLMClient:
             "model": self.model,
             "temperature": 0,
             "response_format": {"type": "json_object"},
+            "max_tokens": 8192,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
         }
+        self.last_sources = []
+        if self.provider == "sonar":
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"schema": self.response_schema or {"type": "object"}},
+            }
+            payload["disable_search"] = not bool(self.public_search_domains)
+            if self.public_search_domains:
+                payload["search_domain_filter"] = list(self.public_search_domains)
         try:
-            response = httpx.post(
-                f"{self.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=payload,
-                timeout=self.timeout,
-            )
+            for attempt in range(3):
+                if self.requests_used >= self.max_requests:
+                    raise AnalysisError(
+                        "MAX_LLM_REQUESTS exhausted; no partial report will be sent"
+                    )
+                self.requests_used += 1
+                try:
+                    response = httpx.post(
+                        f"{self.base_url}/chat/completions",
+                        headers={"Authorization": f"Bearer {self.api_key}"},
+                        json=payload,
+                        timeout=self.timeout,
+                    )
+                except (httpx.TimeoutException, httpx.NetworkError):
+                    if attempt == 2:
+                        raise
+                    time.sleep(2**attempt)
+                    continue
+                if response.status_code not in {429, 500, 502, 503, 504} or attempt == 2:
+                    break
+                try:
+                    delay = float(response.headers.get("retry-after", 2**attempt))
+                except ValueError:
+                    delay = 2**attempt
+                time.sleep(max(0, min(delay, 30)))
             response.raise_for_status()
             body = response.json()
+        except ValueError as exc:
+            raise InvalidOutput("LLM response was not JSON") from exc
         except httpx.HTTPStatusError as exc:
             raise AnalysisError(
                 f"LLM request failed with status {exc.response.status_code}"
@@ -355,12 +434,16 @@ class LLMClient:
         try:
             content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise AnalysisError("LLM response did not contain a message") from exc
+            raise InvalidOutput("LLM response did not contain a message") from exc
+        if isinstance(body.get("search_results"), list):
+            self.last_sources = [r for r in body["search_results"] if isinstance(r, dict)]
         return parse_json_object(content)
 
 
 def parse_json_object(content: str) -> object:
     """Parse a JSON object, tolerating a surrounding code fence."""
+    if not isinstance(content, str):
+        raise InvalidOutput("LLM response content was not text")
     text = content.strip()
     if text.startswith("```"):
         text = text.split("```")[1] if "```" in text[3:] else text[3:]
@@ -368,7 +451,7 @@ def parse_json_object(content: str) -> object:
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise AnalysisError(f"LLM output was not valid JSON: {exc.msg}") from exc
+        raise InvalidOutput("LLM output was not valid JSON") from exc
 
 
 REPAIR_INSTRUCTION = (
@@ -432,63 +515,95 @@ def _analyze_once(
     run: AnalysisRun,
 ) -> list[Signal]:
     """Analyze one batch, recording every rejection on the run as it happens."""
-    run.requests += 1
-    raw = client.complete_json(system_prompt, user_prompt)
-    accepted, rejected = validate_signals(raw, messages)
-    if accepted or not rejected:
-        run.rejections.extend(replace(r, stage=label) for r in rejected)
-        return accepted
-
-    # Keep the first attempt's reasons: they are what prompt tuning needs, even
-    # when the repair succeeds and nothing is ultimately lost.
-    run.rejections.extend(replace(r, stage=f"{label} (first attempt)") for r in rejected)
-    log.warning("%s: all candidates rejected, requesting one repair", label)
-    run.repair_attempts += 1
-    repair_prompt = f"{user_prompt}\n\n{REPAIR_INSTRUCTION}" + "\n".join(
-        f"- {r.detail}" for r in rejected
-    )
-    run.requests += 1
-    raw = client.complete_json(system_prompt, repair_prompt)
-    accepted, rejected_again = validate_signals(raw, messages)
-    if accepted:
-        run.repairs_recovered += 1
-    run.rejections.extend(replace(r, stage=f"{label} (after repair)") for r in rejected_again)
-    return accepted
+    prompt = user_prompt
+    for attempt in range(2):
+        run.requests += 1
+        try:
+            raw = client.complete_json(system_prompt, prompt)
+            accepted, rejected = validate_signals(raw, messages)
+        except InvalidOutput:
+            accepted, rejected = [], [Rejection("invalid_output", "invalid JSON or schema")]
+        if not rejected:
+            if attempt:
+                run.repairs_recovered += 1
+            return accepted
+        stage = f"{label} ({'after repair' if attempt else 'first attempt'})"
+        run.rejections.extend(replace(r, stage=stage) for r in rejected)
+        if attempt == 0:
+            run.repair_attempts += 1
+            prompt = (
+                user_prompt
+                + "\n\n"
+                + REPAIR_INSTRUCTION
+                + "\n".join(sorted({r.kind for r in rejected}))
+            )
+    raise AnalysisError(f"{label}: invalid output after one repair; entire report stopped")
 
 
 def _merge_with_model(
     client: LLMClient, run: AnalysisRun, messages: list[PreparedMessage]
 ) -> list[Signal]:
-    """Ask the model to merge duplicate clusters; fall back to a title merge."""
-    signals = run.signals
-    candidates = [
-        {
-            "title": signal.title,
-            "category": signal.category,
-            "product_surface": signal.surface,
-            "expected": signal.expected,
-            "observed": signal.observed,
-            "severity": signal.severity,
-            "confidence": signal.confidence,
-            "supporting_message_ids": list(signal.supporting_message_ids),
-            "representative_message_ids": list(signal.representative_message_ids),
-            "evidence_rationale": signal.evidence_rationale,
-            "suggested_next_step": signal.suggested_next_step,
-        }
-        for signal in signals
+    """Merge bounded descriptors; evidence unions and counts stay in Python."""
+    by_id = {m.message_id: m for m in messages}
+    signals = sorted(merge_candidates(run.signals), key=lambda s: (s.category, s.surface, s.title))
+    merged = []
+    for offset in range(0, len(signals), 20):
+        chunk = signals[offset : offset + 20]
+        if len(chunk) == 1:
+            merged.extend(chunk)
+            continue
+        candidates = [
+            {
+                "id": i,
+                "title": s.title,
+                "category": s.category,
+                "surface": s.surface,
+                "observed": s.observed,
+            }
+            for i, s in enumerate(chunk)
+        ]
+        prompt = merge_user_prompt(candidates)
+        for attempt in range(2):
+            run.requests += 1
+            try:
+                raw = client.complete_json(MERGE_SYSTEM_PROMPT, prompt)
+                groups = raw.get("groups") if isinstance(raw, dict) else None
+                if not isinstance(groups, list) or not all(
+                    isinstance(g, list) and g and all(type(i) is int for i in g) for g in groups
+                ):
+                    raise InvalidOutput("merge must return groups of integer candidate ids")
+                if sorted(i for g in groups for i in g) != list(range(len(chunk))):
+                    raise InvalidOutput("merge must partition all candidate ids exactly once")
+                if any(len({chunk[i].category for i in g}) != 1 for g in groups):
+                    raise InvalidOutput("merge mixed signal categories")
+                if attempt:
+                    run.repairs_recovered += 1
+                break
+            except InvalidOutput:
+                if attempt:
+                    raise AnalysisError("merge invalid after one repair; report stopped") from None
+                run.repair_attempts += 1
+                prompt += "\nReturn a partition of every candidate id exactly once."
+        for group in groups:
+            members = [chunk[i] for i in group]
+            ids = tuple(dict.fromkeys(i for s in members for i in s.supporting_message_ids))
+            evidence = [by_id[i] for i in ids]
+            merged.append(
+                replace(
+                    members[0],
+                    supporting_message_ids=ids,
+                    representative_message_ids=tuple(
+                        dict.fromkeys(i for s in members for i in s.representative_message_ids)
+                    )[:3],
+                    distinct_users=len({m.author_hash for m in evidence}),
+                    message_count=len(ids),
+                    first_seen=min(m.created_at for m in evidence),
+                    last_seen=max(m.created_at for m in evidence),
+                    severity=max(s.severity for s in members),
+                    confidence=min(s.confidence for s in members),
+                )
+            )
+    return [
+        replace(s, distinct_users=len({by_id[i].author_hash for i in s.supporting_message_ids}))
+        for s in merged
     ]
-    try:
-        run.requests += 1
-        raw = client.complete_json(MERGE_SYSTEM_PROMPT, merge_user_prompt(candidates))
-        merged, rejected = validate_signals(raw, messages)
-    except AnalysisError as exc:
-        log.warning("merge pass failed (%s), using deterministic merge", exc)
-        run.merge_fallback = True
-        run.rejections.append(Rejection("merge_request_failed", str(exc), "merge pass"))
-        return merge_candidates(signals)
-
-    run.rejections.extend(replace(r, stage="merge pass") for r in rejected)
-    if not merged:
-        run.merge_fallback = True
-        return merge_candidates(signals)
-    return merged

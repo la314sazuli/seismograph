@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from seismograph.config import ConfigError, load_config
@@ -12,6 +14,26 @@ def test_valid_environment_loads(env):
     assert config.retention_days == 30
     assert config.report_timezone == "UTC"
     assert config.llm_base_url == "https://llm.example.invalid/v1"
+
+
+def test_primary_example_selects_sonar_without_changing_legacy_fallback(env):
+    example = Path(__file__).resolve().parents[1] / ".env.example"
+    values = dict(
+        line.split("=", 1)
+        for line in example.read_text().splitlines()
+        if line and not line.startswith("#") and "=" in line
+    )
+    assert values["LLM_PROCESSING_APPROVED"] == "false"
+    configured = {
+        **env,
+        **{key: values[key] for key in ("LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL")},
+    }
+    config = load_config(configured)
+    assert config.llm_provider == "sonar"
+    assert config.llm_base_url == "https://api.perplexity.ai"
+    assert config.llm_model == "sonar"
+    env.pop("LLM_PROVIDER", None)
+    assert load_config(env).llm_provider == "openai"
 
 
 def test_trailing_slash_is_removed_from_the_base_url(env):
