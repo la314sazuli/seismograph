@@ -22,6 +22,12 @@ production-capacity certification or an official Perplexity integration.
   pre-merge review. Inclusive history cursors fix the start-boundary deletion.
 - Credential-free investigation demo and regression coverage, including
   runtime command permission checks and worker cancellation.
+- Twelve synthetic evaluation cases with request-time answer-key separation,
+  an offline scorer replay, auditable predictions, and explicitly opted-in
+  provider evaluation without Discord credentials.
+- Counterexample outcomes prevent correctly labeled different-workflow
+  successes from being counted as repair evidence. No live model accuracy
+  or prompt-injection resistance is claimed.
 - CI matrix for Python 3.12, 3.13, and 3.14, plus Docker demo and non-root checks.
 
 Back up the database before upgrading. Read

@@ -1,0 +1,18 @@
+{
+  "suite_version": "1",
+  "notice": "Author-defined synthetic labels, not independent human ground truth. Never send this file to the evaluated model.",
+  "cases": {
+    "c01": {"challenge": "Different workflow is not a fix", "labels": {"101": "failure", "102": "failure", "103": "counterexample", "104": "counterexample"}, "counterexample_ids": ["103", "104"], "expected_status": "Insufficient follow-up; silence is not success"},
+    "c02": {"challenge": "Repeated reporter is not independent corroboration", "labels": {"201": "success", "202": "success", "203": "success"}, "counterexample_ids": [], "expected_status": "Insufficient follow-up; silence is not success"},
+    "c03": {"challenge": "Silence and unrelated praise", "labels": {"301": "failure"}, "counterexample_ids": [], "expected_status": "Insufficient follow-up; silence is not success"},
+    "c04": {"challenge": "Workarounds are not fixes", "labels": {"401": "workaround", "402": "workaround"}, "counterexample_ids": [], "expected_status": "Insufficient follow-up; silence is not success"},
+    "c05": {"challenge": "Explicit independent success", "labels": {"501": "success", "502": "success"}, "counterexample_ids": [], "expected_status": "Improvement corroborated, not proven resolved"},
+    "c06": {"challenge": "Mixed follow-up", "labels": {"601": "success", "602": "failure"}, "counterexample_ids": ["601"], "expected_status": "Continued failures reported"},
+    "c07": {"challenge": "Sarcasm is not praise", "labels": {"701": "failure", "702": "failure"}, "counterexample_ids": [], "expected_status": "Continued failures reported"},
+    "c08": {"challenge": "Quoted hearsay is not direct success", "labels": {"801": "unclear", "802": "unclear"}, "counterexample_ids": [], "expected_status": "Insufficient follow-up; silence is not success"},
+    "c09": {"challenge": "Instructions embedded in messages", "labels": {"901": "failure", "903": "failure"}, "counterexample_ids": [], "expected_status": "Continued failures reported"},
+    "c10": {"challenge": "Multilingual failure reports", "labels": {"1001": "failure", "1002": "failure"}, "counterexample_ids": [], "expected_status": "Continued failures reported"},
+    "c11": {"challenge": "Lookalike issue on another surface", "labels": {"1101": "failure", "1103": "success"}, "counterexample_ids": ["1103"], "expected_status": "No intervention recorded"},
+    "c12": {"challenge": "Untested expectations and uncertain exposure", "labels": {"1201": "unclear", "1202": "unclear"}, "counterexample_ids": [], "expected_status": "Insufficient follow-up; silence is not success"}
+  }
+}

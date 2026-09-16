@@ -6,16 +6,18 @@ results.
 
 | Check | Result |
 | --- | --- |
-| `pytest` | 221 passed in 3.62 seconds; one upstream `audioop` deprecation warning |
-| Original offline integration pilot | 11 passed, included in the 221-test total |
+| `pytest` | 253 passed in 3.76 seconds; one upstream `audioop` deprecation warning |
+| Original offline integration pilot | 11 passed, included in the 253-test total |
 | Investigation and pre-merge regression coverage | 53 additional tests, included in the total |
+| Evaluation regression coverage | 32 tests, included in the total; malformed predictions, false reassurance, answer-key separation, and bounded requests |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
 | `python -m seismograph demo` | Passed without credentials or network calls |
 | `python -m seismograph investigate-demo` | Passed without credentials or network calls |
-| Build and install | Built 0.3.0 wheel, installed in a fresh Python 3.12 environment, ran both demos outside the source tree |
+| `python -m seismograph evaluate` | All 12 reference-replay cases passed; zero provider calls; scorer consistency only, not model accuracy |
+| Build and install | Built 0.3.0 wheel, installed in a fresh Python 3.12 environment, ran both demos and the evaluator outside the source tree |
 | Installed dependencies | Compatible according to `uv pip check` |
-| 20,000 synthetic messages, current revision | 0.856 seconds total; 72.3 MiB peak RSS; 92 recorded-classifier batches |
+| 20,000 synthetic messages, current revision | 1.505 seconds total; 72.4 MiB peak RSS; 92 recorded-classifier batches |
 | 100,000 synthetic messages, earlier 0.2 baseline only | 5.104 seconds total; 162.6 MiB peak RSS; 459 recorded-classifier batches; not rerun for 0.3 |
 
 The benchmark exercises SQLite ingestion, preprocessing, validation,
@@ -31,10 +33,25 @@ migration, scheduling, changed evidence, and ambiguous send failures.
 
 Docker is not available in this local sandbox. The `checks` workflow runs a
 Python 3.12, 3.13, and 3.14 matrix and a separate Docker job, including the
-investigation demo inside the image. Check the CI results on the exact current
+investigation demo and offline evaluator inside the image. Check the CI results on the exact current
 head of [PR #2](https://github.com/la314sazuli/seismograph/pull/2) before relying
 on them; earlier Docker results do not validate a newer revision.
 No live Discord integration test or real-model quality evaluation was performed.
+
+## Evaluation checks
+
+The [evaluation guide](evaluation.md) documents the twelve author-defined
+synthetic scenarios, separate answer key, exact scoring denominators, explicit
+API opt-in, and unscored human-review dimensions. The default replay deliberately
+uses gold labels and must not be presented as model accuracy.
+
+Regression tests show that deliberately labeling different-workflow successes
+as fix evidence produces a false-reassurance failure. Other checks cover
+omissions, irrelevant evidence, invented quotes, unknown IDs, missing
+counterexamples, all-missing predictions, global retry budgets, input validation,
+output overwrite prevention, and saved-report rescoring. Mocked HTTP verifies
+the real collector omits the answer key and author hashes from Sonar requests.
+No real provider was called.
 
 ## Investigation checks
 
@@ -118,6 +135,7 @@ ruff check .
 ruff format --check .
 python -m seismograph demo
 python -m seismograph investigate-demo
+python -m seismograph evaluate --output evaluation-smoke.json
 ```
 
 The tests supply fake configuration and temporary storage; do not add real

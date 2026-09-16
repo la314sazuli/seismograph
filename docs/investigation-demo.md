@@ -18,7 +18,7 @@ The following card was rendered before the deletion check. This exported demo re
 
 # Case 1: Citations lost in PDF export
 Model-proposed interpretations. Exact quotes checked; meaning needs staff review.
-Last analyzed: 2026-09-16T22:46:19+00:00. This is a saved snapshot, not a live monitor.
+Last analyzed: 2026-09-16T22:58:47+00:00. This is a saved snapshot, not a live monitor.
 Scope: 6 selected messages, not the whole community.
 Selected evidence window: 2026-08-04T09:00:00+00:00 to 2026-08-06T10:00:00+00:00.
 Verification: Continued failures reported
@@ -50,7 +50,7 @@ Nothing will be asked or sent automatically.
   https://discord.com/channels/100000000000000001/200000000000000011/300000000000000001
 - failure / PDF export: My PDF export has no citations; the original answer has them.
   https://discord.com/channels/100000000000000001/200000000000000011/300000000000000002
-- success / Normal answer, not PDF: Citations in the normal answer open correctly for me.
+- counterexample / Normal answer, not PDF: Citations in the normal answer open correctly for me.
   https://discord.com/channels/100000000000000001/200000000000000011/300000000000000003
 - workaround / Shared answer link: Sharing the answer link keeps the citations visible.
   https://discord.com/channels/100000000000000001/200000000000000011/300000000000000004

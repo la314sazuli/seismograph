@@ -192,9 +192,12 @@ def cmd_research(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .evaluation import register as register_evaluation
+
     parser = argparse.ArgumentParser(prog="seismograph", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    register_evaluation(subparsers)
 
     subparsers.add_parser("run", help="Run the Discord bot.").set_defaults(handler=cmd_run)
 

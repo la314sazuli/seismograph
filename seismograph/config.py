@@ -13,6 +13,41 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
+class ModelConfig:
+    llm_api_key: str
+    llm_base_url: str
+    llm_model: str
+    llm_provider: str
+
+
+def load_model_config(env: dict[str, str] | None = None) -> ModelConfig:
+    """Model-only configuration for explicit evaluations; no Discord secrets."""
+    env = dict(os.environ if env is None else env)
+    missing = [
+        k for k in ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL") if not env.get(k, "").strip()
+    ]
+    if missing:
+        raise ConfigError("Missing required environment variables: " + ", ".join(missing))
+    base = env["LLM_BASE_URL"].strip().rstrip("/")
+    try:
+        url = urlsplit(base)
+        if not url.hostname or url.username or url.password or url.query or url.fragment:
+            raise ValueError
+    except ValueError:
+        raise ConfigError(
+            "LLM_BASE_URL must be a base URL without credentials or query parameters"
+        ) from None
+    if url.scheme != "https" and not (
+        url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}
+    ):
+        raise ConfigError("LLM_BASE_URL requires HTTPS except for a local model")
+    provider = env.get("LLM_PROVIDER", "openai").strip().lower()
+    if provider not in {"openai", "sonar"}:
+        raise ConfigError("LLM_PROVIDER must be openai or sonar")
+    return ModelConfig(env["LLM_API_KEY"].strip(), base, env["LLM_MODEL"].strip(), provider)
+
+
+@dataclass(frozen=True)
 class Config:
     discord_token: str
     guild_id: int
@@ -94,13 +129,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
     report_id = _int(env["REPORT_CHANNEL_ID"].strip(), "REPORT_CHANNEL_ID", 1)
     if report_id in source_ids:
         raise ConfigError("REPORT_CHANNEL_ID must not be a source channel")
-    url = urlsplit(env["LLM_BASE_URL"])
-    if not url.hostname or url.username or url.password or url.query or url.fragment:
-        raise ConfigError("LLM_BASE_URL must be a base URL without credentials or query parameters")
-    if url.scheme != "https" and not (
-        url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}
-    ):
-        raise ConfigError("LLM_BASE_URL requires HTTPS except for a local model")
+    model = load_model_config(env)
     weekday = _int(env.get("REPORT_WEEKDAY", "0"), "REPORT_WEEKDAY", 0)
     hour = _int(env.get("REPORT_HOUR", "9"), "REPORT_HOUR", 0)
     if weekday > 6 or hour > 23:
@@ -109,17 +138,14 @@ def load_config(env: dict[str, str] | None = None) -> Config:
     retention = _int(env.get("RETENTION_DAYS", "30"), "RETENTION_DAYS", 1)
     if retention < days + 7:
         raise ConfigError("RETENTION_DAYS must cover ANALYSIS_DAYS plus 7 days for catch-up")
-    provider = env.get("LLM_PROVIDER", "openai").strip().lower()
-    if provider not in {"openai", "sonar"}:
-        raise ConfigError("LLM_PROVIDER must be openai or sonar")
     return Config(
         discord_token=env["DISCORD_TOKEN"].strip(),
         guild_id=_int(env["DISCORD_GUILD_ID"].strip(), "DISCORD_GUILD_ID", 1),
         source_channel_ids=source_ids,
         report_channel_id=report_id,
-        llm_api_key=env["LLM_API_KEY"].strip(),
-        llm_base_url=env["LLM_BASE_URL"].strip().rstrip("/"),
-        llm_model=env["LLM_MODEL"].strip(),
+        llm_api_key=model.llm_api_key,
+        llm_base_url=model.llm_base_url,
+        llm_model=model.llm_model,
         report_timezone=timezone,
         analysis_days=days,
         retention_days=retention,
@@ -129,5 +155,5 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         max_llm_requests=_int(env.get("MAX_LLM_REQUESTS", "200"), "MAX_LLM_REQUESTS", 1),
         report_weekday=weekday,
         report_hour=hour,
-        llm_provider=provider,
+        llm_provider=model.llm_provider,
     )

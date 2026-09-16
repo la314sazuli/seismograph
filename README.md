@@ -28,6 +28,16 @@ for staff commands, Sonar configuration, and the current limits.
 Read the [recorded demo output](docs/investigation-demo.md) to inspect the case
 without installing anything.
 
+## Evaluate without Discord
+
+Run `python -m seismograph evaluate --output evaluation-smoke.json` for an
+offline scorer check against 12 synthetic challenge cases. This default
+reference replay uses the answer key and is **not a model-quality result**.
+An optional, explicitly approved live mode tests Sonar or another
+OpenAI-compatible model without Discord credentials. The
+[evaluation guide](docs/evaluation.md) explains answer-key separation, false
+reassurance checks, request budgets, audit files, and the human-review rubric.
+
 ## What it does
 
 - Reads only allowlisted text channels or explicitly listed public threads in

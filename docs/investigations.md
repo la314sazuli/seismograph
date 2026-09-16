@@ -77,7 +77,11 @@ This is not a statistical estimate of the server's population.
 
 Repeated messages do not create extra reporters. If one author reports both
 success and failure in the selected follow-up, failure takes precedence.
-Workarounds and unclear observations do not count as successes. These are
+Workarounds, unclear observations, and counterexamples do not count as successes.
+A `success` must describe the affected workflow; successful normal answers do
+not establish that PDF export was repaired. Relevant contrasting evidence from
+another workflow is labeled `counterexample`, not `success`. This distinction
+depends on model interpretation and must still be reviewed by staff. These are
 conservative product rules, not confidence intervals or causal inference.
 
 The marker establishes time order only. Actual patch adoption, matched device

@@ -33,7 +33,7 @@ def scenario() -> tuple[list[PreparedMessage], dict]:
             "c",
             "04T11",
             "Citations in the normal answer open correctly for me.",
-            "success",
+            "counterexample",
             "Normal answer, not PDF",
         ),
         (

@@ -27,6 +27,7 @@ jobs:
       - run: pytest
       - run: python -m seismograph demo
       - run: python -m seismograph investigate-demo
+      - run: python -m seismograph evaluate --output /tmp/evaluation-smoke.json
       - run: python tools/benchmark.py --messages 20000
 
   docker:
@@ -38,6 +39,8 @@ jobs:
         run: docker run --rm seismograph:ci demo
       - name: Investigation demo runs in the image
         run: docker run --rm seismograph:ci investigate-demo
+      - name: Offline evaluator and packaged fixtures run in the image
+        run: docker run --rm seismograph:ci evaluate --output /tmp/evaluation-smoke.json
       - name: Image runs as a non-root user
         run: test "$(docker run --rm --entrypoint id seismograph:ci -u)" = "10001"
       - name: Missing configuration fails instead of starting
