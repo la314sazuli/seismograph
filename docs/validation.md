@@ -6,14 +6,15 @@ results.
 
 | Check | Result |
 | --- | --- |
-| `pytest` | 390 passed in 12.43 seconds; one upstream `audioop` deprecation warning |
-| Original offline integration pilot | 11 passed, included in the 390-test total |
+| `pytest` | 393 passed in 14.78 seconds; one upstream `audioop` deprecation warning |
+| Original offline integration pilot | 11 passed, included in the 393-test total |
 | Investigation and pre-merge regression coverage | 53 additional tests, included in the total |
 | Evaluation regression coverage | 32 tests, included in the total; malformed predictions, false reassurance, answer-key separation, and bounded requests |
 | Fresh-set and review-tool coverage | 19 tests, included in the total; frozen hashes, packet metadata separation, empty ratings, missing outputs, baseline opt-in and budgets |
 | Case change-log coverage | 23 tests, included in the total; context versus interpretation, lost failures, privacy invalidation, current-marker comparisons, stale sends, and staff-only command handling |
 | Staff-review coverage | 43 tests, included in the total; correction previews, withdrawal audits, fresh revision keys, migration from v3, opt-outs, allowlists, pagination, and command privacy |
 | Patch-exposure coverage | 47 additional tests, included in the total; exact quote and scope validation, unknown defaults, original/adjusted groups, overlap, reset audits, marker/revision freshness, privacy cascades, v4-to-v5 migration, command permissions, and offline replay |
+| Release metadata coverage | Three additional tests, included in the total; source/package version alignment, changelog version, and credential-free `--version` |
 | Provider example and final delivery checks | Five additional tests, included in the total; Sonar-first example preserves the legacy fallback, and multi-part reports stop after source edits, deletions, or opt-outs |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
@@ -24,9 +25,10 @@ results.
 | `python -m seismograph exposure-demo` | Passed without credentials or network calls; three exposure groups, explicit reset, reviewer erasure, stale release rejection, and source deletion |
 | `python -m seismograph evaluate` | All 12 reference-replay cases passed; zero provider calls; scorer consistency only, not model accuracy |
 | Fresh review preparation | Ten additional cases; blank two-reviewer packet generated; zero real provider calls or human ratings |
-| Build and install | Built the updated 0.3.0 wheel, installed in a fresh Python 3.14 environment, ran all five demos and the evaluator outside the source tree; fresh review tooling is source-checkout-only |
+| Build and install | Built the 0.4.0 source distribution and its wheel; installed both into separate fresh Python 3.12 environments; checked metadata, all five demos, and the evaluator outside the checkout |
+| Source distribution completeness | All 393 tests passed from the unpacked archive in 13.78 seconds; fresh-review packet generation also passed. Includes tests, docs, tools, frozen challenge files, example configuration, and Dockerfile |
 | Installed dependencies | Compatible according to `uv pip check` |
-| 20,000 synthetic messages | 2.137 seconds total; 72.4 MiB peak RSS; 92 recorded-classifier batches |
+| 20,000 synthetic messages, patch-exposure build | 2.137 seconds total; 72.4 MiB peak RSS; 92 recorded-classifier batches; not rerun locally for the version-only release preparation |
 | 100,000 synthetic messages, earlier 0.2 baseline only | 5.104 seconds total; 162.6 MiB peak RSS; 459 recorded-classifier batches; not rerun for 0.3 |
 
 The benchmark exercises SQLite ingestion, preprocessing, validation,
@@ -43,11 +45,26 @@ migration, scheduling, changed evidence, and ambiguous send failures.
 Docker is not available in this local sandbox. The `checks` workflow runs a
 Python 3.12, 3.13, and 3.14 matrix and a separate Docker job, including the
 investigation, case changes, staff review, and patch exposure demos plus the
-offline evaluator inside the image. Check the
+offline evaluator inside the image. A separate package job builds a wheel from
+the source distribution and tests clean installations of both formats outside
+the checkout, including installed metadata and all five demos. Check the
 [workflow results](https://github.com/la314sazuli/seismograph/actions/workflows/checks.yml)
 on the exact current commit before relying on them; earlier Docker results
 do not validate a newer revision.
 No live Discord integration test or real-model quality evaluation was performed.
+
+## Release-preparation checks
+
+Version 0.4.0 is consistent in source metadata, package metadata, the CLI,
+and the changelog. `--version` does not read runtime configuration or call
+a provider. The source archive includes the material needed to reproduce
+tests and the frozen-review workflow; the wheel includes runtime fixtures.
+The build produces no runtime dependency beyond the existing requirements.
+
+Local source-archive tests and both clean-install smoke checks passed. The
+release gate additionally requires the exact merged commit's CI distributions
+and matching SHA-256 checksums. A prepared draft is not a published release,
+container image, PyPI upload, or deployment.
 
 ## Patch-exposure checks
 
