@@ -28,6 +28,7 @@ jobs:
       - run: python -m seismograph demo
       - run: python -m seismograph investigate-demo
       - run: python -m seismograph evaluate --output /tmp/evaluation-smoke.json
+      - run: python tools/blind_review.py prepare --output /tmp/fresh-review
       - run: python tools/benchmark.py --messages 20000
 
   docker:

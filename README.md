@@ -37,6 +37,9 @@ An optional, explicitly approved live mode tests Sonar or another
 OpenAI-compatible model without Discord credentials. The
 [evaluation guide](docs/evaluation.md) explains answer-key separation, false
 reassurance checks, request budgets, audit files, and the human-review rubric.
+The [fresh challenge and review pack](evaluations/fresh-v1/README.md) provides
+ten separate ambiguous scenarios and a provider-blinded A/B review workflow,
+including an optional simple-summary baseline. No real-model results are bundled.
 
 ## What it does
 

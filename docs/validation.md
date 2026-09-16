@@ -6,18 +6,20 @@ results.
 
 | Check | Result |
 | --- | --- |
-| `pytest` | 253 passed in 3.76 seconds; one upstream `audioop` deprecation warning |
-| Original offline integration pilot | 11 passed, included in the 253-test total |
+| `pytest` | 272 passed in 4.19 seconds; one upstream `audioop` deprecation warning |
+| Original offline integration pilot | 11 passed, included in the 272-test total |
 | Investigation and pre-merge regression coverage | 53 additional tests, included in the total |
 | Evaluation regression coverage | 32 tests, included in the total; malformed predictions, false reassurance, answer-key separation, and bounded requests |
+| Fresh-set and review-tool coverage | 19 tests, included in the total; frozen hashes, packet metadata separation, empty ratings, missing outputs, baseline opt-in and budgets |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
 | `python -m seismograph demo` | Passed without credentials or network calls |
 | `python -m seismograph investigate-demo` | Passed without credentials or network calls |
 | `python -m seismograph evaluate` | All 12 reference-replay cases passed; zero provider calls; scorer consistency only, not model accuracy |
-| Build and install | Built 0.3.0 wheel, installed in a fresh Python 3.12 environment, ran both demos and the evaluator outside the source tree |
+| Fresh review preparation | Ten additional cases; blank two-reviewer packet generated; zero real provider calls or human ratings |
+| Build and install, earlier `525ca5d` revision | Built 0.3.0 wheel, installed in a fresh Python 3.12 environment, ran both demos and the evaluator outside the source tree; fresh review tooling is source-checkout-only |
 | Installed dependencies | Compatible according to `uv pip check` |
-| 20,000 synthetic messages, current revision | 1.505 seconds total; 72.4 MiB peak RSS; 92 recorded-classifier batches |
+| 20,000 synthetic messages, earlier `525ca5d` revision | 1.505 seconds total; 72.4 MiB peak RSS; 92 recorded-classifier batches |
 | 100,000 synthetic messages, earlier 0.2 baseline only | 5.104 seconds total; 162.6 MiB peak RSS; 459 recorded-classifier batches; not rerun for 0.3 |
 
 The benchmark exercises SQLite ingestion, preprocessing, validation,
@@ -52,6 +54,14 @@ counterexamples, all-missing predictions, global retry budgets, input validation
 output overwrite prevention, and saved-report rescoring. Mocked HTTP verifies
 the real collector omits the answer key and author hashes from Sonar requests.
 No real provider was called.
+
+The [fresh-v1 review set](../evaluations/fresh-v1/README.md) contains ten separate
+AI-authored cases, not an independent holdout. Its tests confirm that reference
+labels agree with current rules, while the review notes explicitly identify
+correction and rollout-exposure limits in those rules. Neither the production
+prompt nor verification logic was changed to make this set pass. The summary
+baseline has no automatic investigator score; comparison requires human review
+using the common rubric.
 
 ## Investigation checks
 
@@ -136,6 +146,7 @@ ruff format --check .
 python -m seismograph demo
 python -m seismograph investigate-demo
 python -m seismograph evaluate --output evaluation-smoke.json
+python tools/blind_review.py prepare --output fresh-review
 ```
 
 The tests supply fake configuration and temporary storage; do not add real

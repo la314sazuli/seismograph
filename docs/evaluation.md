@@ -168,3 +168,12 @@ Record disagreements and adjudication separately rather than hiding them in
 one average. Report model configuration, set hashes, incomplete cases, and
 reviewer agreement alongside results. No human-review results or independent
 model comparison have been performed for this release.
+
+## Fresh-set human comparison
+
+The separate [fresh-v1 set](../evaluations/fresh-v1/README.md) adds ten more
+ambiguous scenarios, a frozen preparation manifest, and a two-reviewer packet
+generator. It includes an opt-in simple-summary collector for comparing
+workflow usefulness on the same model without forcing the summary through an
+investigation-shaped scoring schema. See the
+[review protocol](blind-review.md) for blinding limits and adjudication.

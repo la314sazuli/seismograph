@@ -29,6 +29,9 @@ production-capacity certification or an official Perplexity integration.
   successes from being counted as repair evidence. No live model accuracy
   or prompt-injection resistance is claimed.
 - CI matrix for Python 3.12, 3.13, and 3.14, plus Docker demo and non-root checks.
+- Separate fresh-v1 challenge set and two-reviewer packet generator, with
+  randomized candidate positions, withheld coordinator metadata, an explicit
+  no-results starter state, and an opt-in simple-summary baseline.
 
 Back up the database before upgrading. Read
 [the investigation guide](docs/investigations.md) and
