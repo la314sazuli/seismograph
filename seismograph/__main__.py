@@ -115,7 +115,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
         except ConfigError as exc:
             print(f"Live demo needs full configuration: {exc}", file=sys.stderr)
             return 2
-        client = LLMClient(config.llm_base_url, config.llm_api_key, config.llm_model)
+        client = LLMClient.from_config(config)
         from .analysis import analyze
 
         try:
@@ -169,6 +169,28 @@ def cmd_period(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_investigate_demo(_: argparse.Namespace) -> int:
+    from .case_demo import run
+
+    print(run(), end="")
+    return 0
+
+
+def cmd_research(args: argparse.Namespace) -> int:
+    from .research import research_public
+
+    config = load_config()
+    try:
+        result = research_public(
+            config, args.query, tuple(args.domains.split(",")), approved=args.approved_public_query
+        )
+    except AnalysisError as exc:
+        print(f"Research stopped: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="seismograph", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -183,6 +205,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Call the configured LLM instead of the recorded fixture analysis.",
     )
     demo.set_defaults(handler=cmd_demo)
+    subparsers.add_parser(
+        "investigate-demo", help="Run a fictional investigation and fix-verification scenario."
+    ).set_defaults(handler=cmd_investigate_demo)
+    research = subparsers.add_parser(
+        "research-public", help="Explicitly research a public topic through Sonar; paid API call."
+    )
+    research.add_argument("query")
+    research.add_argument(
+        "--domains", required=True, help="Comma-separated public domain allowlist."
+    )
+    research.add_argument("--approved-public-query", action="store_true")
+    research.set_defaults(handler=cmd_research)
 
     prune = subparsers.add_parser("prune", help="Delete messages past the retention window.")
     prune.add_argument("--days", type=int, help="Override RETENTION_DAYS.")

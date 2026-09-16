@@ -354,7 +354,7 @@ def test_schema_v1_migration_preserves_data_and_marks_old_unpublished_run_uncert
     db.close()
     db = storage.connect(path)
     try:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == storage.SCHEMA_VERSION
         assert db.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 3
         assert db.execute("SELECT status FROM runs").fetchone()[0] == "uncertain"
     finally:

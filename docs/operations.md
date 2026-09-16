@@ -155,7 +155,7 @@ forensic erasure on SSDs.
 
 Use one Linux/macOS process and one local database volume. The run command takes
 an exclusive file lock; multiple replicas and network filesystems are unsupported.
-Back up the database before upgrading: schema v1 migrates to v2 in place and an
+Back up the database before upgrading: schemas v1 and v2 migrate to v3 in place and an
 older binary cannot read the upgraded database. Stop the bot before taking a
 simple filesystem backup, and apply the same retention/access policy to backups.
 

@@ -6,13 +6,17 @@ results.
 
 | Check | Result |
 | --- | --- |
-| `pytest` | 168 passed in 2.92 seconds; one upstream `audioop` deprecation warning |
-| Offline integration pilot | 11 passed, included in the 168-test total |
+| `pytest` | 221 passed in 3.62 seconds; one upstream `audioop` deprecation warning |
+| Original offline integration pilot | 11 passed, included in the 221-test total |
+| Investigation and pre-merge regression coverage | 53 additional tests, included in the total |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
 | `python -m seismograph demo` | Passed without credentials or network calls |
-| 20,000 synthetic messages | 0.612 seconds total; 72.4 MiB peak RSS; 92 recorded-classifier batches |
-| 100,000 synthetic messages | 5.104 seconds total; 162.6 MiB peak RSS; 459 recorded-classifier batches |
+| `python -m seismograph investigate-demo` | Passed without credentials or network calls |
+| Build and install | Built 0.3.0 wheel, installed in a fresh Python 3.12 environment, ran both demos outside the source tree |
+| Installed dependencies | Compatible according to `uv pip check` |
+| 20,000 synthetic messages, current revision | 0.856 seconds total; 72.3 MiB peak RSS; 92 recorded-classifier batches |
+| 100,000 synthetic messages, earlier 0.2 baseline only | 5.104 seconds total; 162.6 MiB peak RSS; 459 recorded-classifier batches; not rerun for 0.3 |
 
 The benchmark exercises SQLite ingestion, preprocessing, validation,
 evidence-preserving title merging, measured author counts, scoring, and rendering.
@@ -25,8 +29,48 @@ The unit suite separately checks bounded multi-topic merge groups, invalid
 responses, retries, event-loop responsiveness, scope isolation, opt-outs, schema
 migration, scheduling, changed evidence, and ambiguous send failures.
 
-Docker is verified by the repository's `checks` workflow, not this local sandbox.
+Docker is not available in this local sandbox. The `checks` workflow runs a
+Python 3.12, 3.13, and 3.14 matrix and a separate Docker job, including the
+investigation demo inside the image. Check the CI results on the exact current
+head of [PR #2](https://github.com/la314sazuli/seismograph/pull/2) before relying
+on them; earlier Docker results do not validate a newer revision.
 No live Discord integration test or real-model quality evaluation was performed.
+
+## Investigation checks
+
+`tests/test_cases.py` and `tests/test_premerge_regressions.py` cover the new
+workflow and the two defects found in the earlier pre-merge review:
+
+- Exact quote validation; unknown, duplicate, malformed, or conflicting
+  observation references fail closed.
+- Bounded evidence context, one repair attempt, and no author hashes in case
+  prompts.
+- Persistent identity and intervention markers, both v1 and v2 migration paths,
+  and unchanged historical message data.
+- Edit, deletion, opt-out, and retention invalidation, including uncited context
+  and prevention of fallback to an old case revision.
+- Transactional rejection of stale message snapshots and stale prior-case
+  revisions used as input during a refresh.
+- Distinct-reporter counting, failure precedence, and refusal to interpret
+  silence as success.
+- Sonar search disabled for private analysis, explicit JSON Schema payloads,
+  portable-provider request shape, and request-budget enforcement.
+- Approval and obvious-identifier rejection before public research calls,
+  allowlisted returned-source handling, and rejection of invented source URLs.
+- Real case-command storage and ephemeral-response handling with mocked Discord,
+  including direct refresh without another published report signal.
+- Runtime administrator checks on all three investigation commands, not just
+  default visibility settings.
+- Case cards identify their last-analysis time and selected evidence window.
+- Cancellation cannot let the case's provider worker write derived records.
+- Opt-out between report analysis and save no longer restores excluded signal
+  evidence, even with a later permissions failure configured.
+- Discord's actual history iterator preserves the inclusive start boundary
+  during history reconciliation.
+
+These tests use recorded or synthetic model output. They verify code contracts,
+not semantic correctness, diagnosis quality, prompt-injection resistance, or
+platform permission behavior in a real guild.
 
 ## Credential-free integration pilot
 
@@ -58,7 +102,8 @@ sent to Discord.
 | Collection limit | Exceeding the configured message cap stops before any model request or post |
 
 These scenarios are covered by 11 tests; some tests assert multiple boundaries.
-The new test suite adds no production dependencies or runtime features.
+The original pilot added no production dependencies. The 0.3 investigation
+workflow also adds no runtime dependencies.
 
 ## Reproduce
 
@@ -72,6 +117,7 @@ python -m pytest -o addopts='' -q
 ruff check .
 ruff format --check .
 python -m seismograph demo
+python -m seismograph investigate-demo
 ```
 
 The tests supply fake configuration and temporary storage; do not add real

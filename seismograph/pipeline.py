@@ -91,7 +91,7 @@ def generate_report(
         signals = apply_history(connection, run_id, analysis.signals)
         signals = rank(signals, period_days=max(1, _period_days(start, end)))
         report = build_report(signals, messages, label)
-        storage.save_signals(connection, run_id, signals)
+        storage.save_signals(connection, run_id, signals, snapshot=messages)
     except InsufficientEvidence:
         storage.set_status(connection, run_id, "empty")
         raise

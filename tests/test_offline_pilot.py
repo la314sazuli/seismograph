@@ -127,11 +127,15 @@ def pilot(env, tmp_path, monkeypatch):
 
         async def history(*, after, before, limit, oldest_first, cid=channel_id):
             assert oldest_first
+            inclusive = not isinstance(after, datetime)
+            lower = discord.utils.snowflake_time(after.id + 1) if inclusive else after
             matching = sorted(
                 (
                     m
                     for m in state.messages
-                    if m.channel.id == cid and after < m.created_at < before
+                    if m.channel.id == cid
+                    and (lower <= m.created_at if inclusive else lower < m.created_at)
+                    and m.created_at < before
                 ),
                 key=lambda m: m.created_at,
             )

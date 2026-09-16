@@ -10,7 +10,43 @@ from .scoring import Signal
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+CASE_SCHEMA = """
+CREATE TABLE cases (
+    id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    intervention_at TEXT,
+    intervention_note TEXT
+);
+CREATE TABLE case_revisions (
+    id INTEGER PRIMARY KEY,
+    case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
+CREATE TABLE case_inputs (
+    revision_id INTEGER NOT NULL REFERENCES case_revisions(id) ON DELETE CASCADE,
+    message_id TEXT NOT NULL REFERENCES messages(message_id),
+    PRIMARY KEY(revision_id, message_id)
+);
+CREATE INDEX case_inputs_message ON case_inputs(message_id);
+CREATE TRIGGER invalidate_case_delete BEFORE DELETE ON messages
+BEGIN
+    DELETE FROM case_revisions WHERE case_id IN (
+        SELECT r.case_id FROM case_revisions r JOIN case_inputs i ON i.revision_id = r.id
+        WHERE i.message_id = OLD.message_id
+    );
+END;
+CREATE TRIGGER invalidate_case_edit BEFORE UPDATE OF content ON messages
+WHEN OLD.content != NEW.content
+BEGIN
+    DELETE FROM case_revisions WHERE case_id IN (
+        SELECT r.case_id FROM case_revisions r JOIN case_inputs i ON i.revision_id = r.id
+        WHERE i.message_id = OLD.message_id
+    );
+END;
+"""
 
 SCHEMA = """
 CREATE TABLE messages (
@@ -88,11 +124,16 @@ def connect(path: str) -> sqlite3.Connection:
         CREATE TABLE optouts (author_hash TEXT PRIMARY KEY);
         CREATE INDEX messages_channel_time ON messages(channel_id, created_at);
         """
-            + f"\nPRAGMA user_version = {SCHEMA_VERSION};\nCOMMIT;"
+            + "\nPRAGMA user_version = 2;\nCOMMIT;"
         )
-    elif version != SCHEMA_VERSION:
+        version = 2
+    elif version not in (2, SCHEMA_VERSION):
         raise RuntimeError(
             f"database schema version {version} does not match expected {SCHEMA_VERSION}"
+        )
+    if version == 2:
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n" + CASE_SCHEMA + "\nPRAGMA user_version = 3;\nCOMMIT;"
         )
     return connection
 
@@ -175,7 +216,30 @@ def previous_message_counts(
     return {(r["title"].strip().lower(), r["category"]): r["message_count"] for r in rows}
 
 
-def save_signals(connection: sqlite3.Connection, run_id: int, signals: list[Signal]) -> None:
+def validate_snapshot(connection: sqlite3.Connection, snapshot: list) -> None:
+    """Must run inside the same write transaction as the derived-data save."""
+    from .analysis import AnalysisError, prepare
+
+    for message in snapshot:
+        row = connection.execute(
+            "SELECT * FROM messages WHERE message_id = ?", (message.message_id,)
+        ).fetchone()
+        current = prepare([dict(row)]) if row else []
+        if not current or current[0] != message:
+            raise AnalysisError("Evidence changed during analysis; rerun the report")
+
+
+def save_signals(
+    connection: sqlite3.Connection, run_id: int, signals: list[Signal], snapshot: list | None = None
+) -> None:
+    with connection:
+        if snapshot is not None:
+            connection.execute("BEGIN IMMEDIATE")
+            validate_snapshot(connection, snapshot)
+        _insert_signals(connection, run_id, signals)
+
+
+def _insert_signals(connection: sqlite3.Connection, run_id: int, signals: list[Signal]) -> None:
     for signal in signals:
         cursor = connection.execute(
             "INSERT INTO signals (run_id, title, category, surface, severity, confidence, trend,"
@@ -200,7 +264,6 @@ def save_signals(connection: sqlite3.Connection, run_id: int, signals: list[Sign
             "INSERT OR IGNORE INTO evidence (signal_id, message_id) VALUES (?, ?)",
             [(cursor.lastrowid, message_id) for message_id in signal.supporting_message_ids],
         )
-    connection.commit()
 
 
 def mark_published(connection: sqlite3.Connection, run_id: int, report_message_id: str) -> None:
@@ -241,6 +304,10 @@ def prune(connection: sqlite3.Connection, retention_days: int, now: datetime | N
     cursor = connection.execute("DELETE FROM messages WHERE created_at < ?", (cutoff,))
     deleted = cursor.rowcount
     connection.execute("DELETE FROM runs WHERE period_end < ?", (cutoff,))
+    connection.execute(
+        "DELETE FROM cases WHERE created_at < ? AND id NOT IN (SELECT case_id FROM case_revisions)",
+        (cutoff,),
+    )
     connection.execute(
         "DELETE FROM evidence WHERE message_id NOT IN (SELECT message_id FROM messages)"
     )

@@ -10,6 +10,7 @@ from discord.ext import tasks
 
 from . import storage
 from .analysis import AnalysisError, LLMClient, prepare
+from .case_commands import register as register_case_commands
 from .config import Config
 from .pipeline import analysis_period, generate_report, period_label, scheduled_period, utc_iso
 from .privacy import hash_author, redact
@@ -43,6 +44,7 @@ class SeismographClient(discord.Client):
         self.report_lock = asyncio.Lock()
         self.startup_failed = False
         self._register_commands()
+        register_case_commands(self)
 
     async def setup_hook(self) -> None:
         guild = discord.Object(id=self.config.guild_id)
@@ -219,7 +221,7 @@ class SeismographClient(discord.Client):
             channel = await self.fetch_channel(channel_id)
             batch, seen = [], set()
             async for message in channel.history(
-                after=after,
+                after=discord.Object(id=discord.utils.time_snowflake(after, high=False) - 1),
                 before=before,
                 oldest_first=True,
                 limit=self.config.max_messages - scanned + 1,
@@ -253,12 +255,7 @@ class SeismographClient(discord.Client):
     def analyze_period(self, kind: str, start: str, end: str, run_id: int):
         connection = storage.connect(self.config.database_path)
         try:
-            llm = LLMClient(
-                self.config.llm_base_url,
-                self.config.llm_api_key,
-                self.config.llm_model,
-                max_requests=self.config.max_llm_requests,
-            )
+            llm = LLMClient.from_config(self.config)
             return generate_report(
                 connection,
                 llm,

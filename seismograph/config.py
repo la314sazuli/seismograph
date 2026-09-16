@@ -30,6 +30,7 @@ class Config:
     max_llm_requests: int = 200
     report_weekday: int = 0
     report_hour: int = 9
+    llm_provider: str = "openai"
 
 
 def _int_list(raw: str, name: str) -> tuple[int, ...]:
@@ -108,6 +109,9 @@ def load_config(env: dict[str, str] | None = None) -> Config:
     retention = _int(env.get("RETENTION_DAYS", "30"), "RETENTION_DAYS", 1)
     if retention < days + 7:
         raise ConfigError("RETENTION_DAYS must cover ANALYSIS_DAYS plus 7 days for catch-up")
+    provider = env.get("LLM_PROVIDER", "openai").strip().lower()
+    if provider not in {"openai", "sonar"}:
+        raise ConfigError("LLM_PROVIDER must be openai or sonar")
     return Config(
         discord_token=env["DISCORD_TOKEN"].strip(),
         guild_id=_int(env["DISCORD_GUILD_ID"].strip(), "DISCORD_GUILD_ID", 1),
@@ -125,4 +129,5 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         max_llm_requests=_int(env.get("MAX_LLM_REQUESTS", "200"), "MAX_LLM_REQUESTS", 1),
         report_weekday=weekday,
         report_hour=hour,
+        llm_provider=provider,
     )

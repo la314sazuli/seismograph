@@ -343,6 +343,9 @@ class LLMClient:
         model: str,
         timeout: float = 60.0,
         max_requests: int = 200,
+        provider: str = "openai",
+        response_schema: dict | None = None,
+        public_search_domains: tuple[str, ...] = (),
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -350,6 +353,25 @@ class LLMClient:
         self.timeout = timeout
         self.max_requests = max_requests
         self.requests_used = 0
+        if provider not in {"openai", "sonar"}:
+            raise ValueError("Unsupported model provider")
+        if public_search_domains and provider != "sonar":
+            raise ValueError("Public research requires the Sonar adapter")
+        self.provider = provider
+        self.response_schema = response_schema
+        self.public_search_domains = public_search_domains
+        self.last_sources: list[dict] = []
+
+    @classmethod
+    def from_config(cls, config, *, schema: dict | None = None):
+        return cls(
+            config.llm_base_url,
+            config.llm_api_key,
+            config.llm_model,
+            max_requests=config.max_llm_requests,
+            provider=config.llm_provider,
+            response_schema=schema,
+        )
 
     def complete_json(self, system_prompt: str, user_prompt: str) -> object:
         """Return parsed JSON from one chat completion, or raise AnalysisError."""
@@ -363,6 +385,15 @@ class LLMClient:
                 {"role": "user", "content": user_prompt},
             ],
         }
+        self.last_sources = []
+        if self.provider == "sonar":
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"schema": self.response_schema or {"type": "object"}},
+            }
+            payload["disable_search"] = not bool(self.public_search_domains)
+            if self.public_search_domains:
+                payload["search_domain_filter"] = list(self.public_search_domains)
         try:
             for attempt in range(3):
                 if self.requests_used >= self.max_requests:
@@ -404,6 +435,8 @@ class LLMClient:
             content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise InvalidOutput("LLM response did not contain a message") from exc
+        if isinstance(body.get("search_results"), list):
+            self.last_sources = [r for r in body["search_results"] if isinstance(r, dict)]
         return parse_json_object(content)
 
 

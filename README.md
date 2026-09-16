@@ -1,13 +1,32 @@
 # Seismograph
 
-Detect friction before it becomes an incident.
+Find the failure. Challenge the explanation. Check the fix.
 
 [![checks](https://github.com/la314sazuli/seismograph/actions/workflows/checks.yml/badge.svg)](https://github.com/la314sazuli/seismograph/actions/workflows/checks.yml)
 
-Seismograph turns Discord feedback into evidence-backed product signals. It
-groups recurring complaints, identifies emerging friction, and posts a weekly
-staff report with links to the original messages. It is an independent,
-MIT-licensed, self-hosted project.
+Seismograph turns Discord feedback into evidence-backed investigations, not just
+a sentiment chart. It groups recurring complaints, gives staff competing
+explanations with counterexamples, and checks reported outcomes after an
+intervention. It is an independent, MIT-licensed, self-hosted project, not an
+official Perplexity integration.
+
+## Try the difference
+
+```bash
+python -m seismograph investigate-demo
+```
+
+No credentials, network, or Discord server needed after installation. The
+fictional scenario starts with missing citations, distinguishes PDF-export
+failures from successful normal answers, proposes one useful follow-up question,
+and refuses to mark a patch successful while failures continue.
+
+The output uses recorded interpretations, not a live model. Exact quote checks,
+case persistence, deterministic reporter counts, and deletion checks run through
+the real implementation. See the [investigation guide](docs/investigations.md)
+for staff commands, Sonar configuration, and the current limits.
+Read the [recorded demo output](docs/investigation-demo.md) to inspect the case
+without installing anything.
 
 ## What it does
 
@@ -23,6 +42,12 @@ MIT-licensed, self-hosted project.
   edits, deletions, retention, and administrator feedback reactions.
 - Bounds collection and model requests; stops rather than publishing partial
   analysis when a limit or validation check fails.
+- Creates persistent, staff-requested cases with source-checked quotations,
+  competing hypotheses, counterexamples, and a test that could refute each.
+- Records an intervention without closing the case. Explicit failure and success
+  reports drive follow-up status; silence is never evidence of a fix.
+- Supports Sonar with search disabled for private analysis, or a portable
+  OpenAI-compatible endpoint. Optional public research is separately approved.
 
 This is a working MVP with large-community safeguards, not a claim of validated
 production capacity for any particular guild. Read the
@@ -113,6 +138,7 @@ automatically loaded.
 | `LLM_API_KEY` | required | Chat-completions bearer token. |
 | `LLM_BASE_URL` | required | HTTPS base URL, such as `https://api.example.com/v1`. Localhost HTTP is allowed. |
 | `LLM_MODEL` | required | Model supporting JSON chat completions. |
+| `LLM_PROVIDER` | `openai` | `openai` for compatible endpoints; `sonar` for the Sonar adapter. |
 | `AUTHOR_HASH_SALT` | required | Random secret, at least 16 characters. |
 | `LLM_PROCESSING_APPROVED` | `false` | Must be `true` to run the bot after completing the rollout checklist. |
 | `REPORT_TIMEZONE` | `UTC` | IANA timezone. |
@@ -186,6 +212,10 @@ retains and unions the original evidence IDs.
 `scoring.py` computes deterministic rankings, and `report.py` renders
 length-limited, mention-disabled reports.
 The scheduler, manual command, and synthetic demo reuse the same domain logic.
+`cases.py` validates case evidence and computes follow-up status;
+`case_commands.py` exposes administrator-only ephemeral workflows.
+`research.py` accepts only an explicitly approved public query and source
+domains, never a database or case object. There is no autonomous research loop.
 
 ## Tremor Score
 
@@ -222,8 +252,9 @@ Email addresses, phone-like strings, tokens, mentions, IP addresses and invite
 links are redacted on a best-effort basis. Summaries may still expose sensitive
 facts, so review provider settings and access controls before using real data.
 
-Opt-out deletes local user messages and affected signals while retaining a
-suppression hash. Retention also removes expired reports, evidence and feedback
+Opt-out deletes local user messages, affected signals, and all revisions of
+affected cases while retaining a suppression hash. Retention also removes
+expired reports, evidence and feedback
 from SQLite. Already-posted Discord reports, provider-held data, and backups
 need separate operator handling; there is no legal-compliance guarantee.
 
@@ -236,6 +267,10 @@ Other limitations:
 - No attachment/embed analysis, automatic thread discovery, dashboard, or vector DB.
 - Limits stop oversized reports rather than silently sampling the population.
 - SQLite and the process lock are for one local instance, not horizontal scaling.
+- Case hypotheses, relevance, and outcome labels are model proposals, not
+  verified causes or measured causal effects. Staff must review them.
+- Case context is capped at 120 selected messages. It is not a census or an
+  automatic cross-period identity matcher.
 
 ## Contributing and checks
 
@@ -244,6 +279,7 @@ pytest
 ruff check .
 ruff format --check .
 python -m seismograph demo
+python -m seismograph investigate-demo
 python tools/benchmark.py --messages 20000
 ```
 
