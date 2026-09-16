@@ -106,11 +106,13 @@ still require separate operator handling.
 
 ## Database upgrade and offline demo
 
-Schema v4 adds a revision freshness key, correction and withdrawal tables,
-indexes, and privacy triggers. Startup migrates v1–v3 databases automatically;
-model payloads and evidence remain unchanged. Stop the old instance and take a
-consistent backup before upgrading. Older binaries cannot open v4; rollback
-requires restoring the pre-upgrade backup, not downgrading the live database.
+Staff review introduced schema v4: a revision freshness key, correction and
+withdrawal tables, indexes, and privacy triggers. The current schema is v5,
+which also adds [patch-exposure assessments](patch-exposure.md). Startup migrates
+v1–v4 databases automatically; model payloads and evidence remain unchanged.
+Stop the old instance and take a consistent backup before upgrading. Older
+binaries reject the newer schema; rollback requires restoring the pre-upgrade
+backup, not downgrading the live database.
 
 ```sh
 python -m seismograph review-demo

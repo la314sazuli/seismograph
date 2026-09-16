@@ -11,7 +11,15 @@ import discord
 from discord import app_commands
 from discord.utils import escape_markdown
 
-from . import case_history, case_reviews, cases, review_commands, storage
+from . import (
+    case_history,
+    case_reviews,
+    cases,
+    exposure,
+    exposure_commands,
+    review_commands,
+    storage,
+)
 from .analysis import AnalysisError, LLMClient, prepare
 from .pipeline import utc_iso
 from .report import split_for_discord
@@ -21,6 +29,7 @@ log = logging.getLogger(__name__)
 
 def register(client) -> None:
     review_commands.register(client)
+    exposure_commands.register(client)
 
     @client.tree.command(
         name="seismograph_changes",
@@ -46,9 +55,18 @@ def register(client) -> None:
                     client.connection, case_id, client.config.source_channel_ids
                 )
                 text += case_reviews.banner(review)
+                segments = (
+                    exposure.view(client.connection, case_id, client.config.source_channel_ids)
+                    if review["marker"][0]
+                    else None
+                )
+                if segments:
+                    text += exposure.banner(segments)
                 for chunk in split_for_discord(text):
                     case_history.assert_current(client.connection, comparison)
                     case_reviews.assert_current(client.connection, review)
+                    if segments:
+                        exposure.assert_current(client.connection, segments)
                     await interaction.followup.send(
                         chunk,
                         ephemeral=True,
@@ -188,8 +206,17 @@ def register(client) -> None:
                     client.connection, case_id, client.config.source_channel_ids
                 )
                 text += case_reviews.banner(review)
+                segments = (
+                    exposure.view(client.connection, case_id, client.config.source_channel_ids)
+                    if review["marker"][0]
+                    else None
+                )
+                if segments:
+                    text += exposure.banner(segments)
                 for chunk in split_for_discord(text):
                     case_reviews.assert_current(client.connection, review)
+                    if segments:
+                        exposure.assert_current(client.connection, segments)
                     await interaction.followup.send(
                         chunk,
                         ephemeral=True,

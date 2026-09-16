@@ -77,6 +77,12 @@ Staff can annotate an incorrect outcome through `/seismograph_reviews`,
 unchanged; a separately labeled preview applies current-revision corrections.
 See [staff review](staff-review.md) for revision keys, audit and privacy limits.
 
+`/seismograph_exposures` and `/seismograph_exposure` separate quote-backed patch
+exposure from post-marker timing. Original counts remain unchanged; received,
+not-received, and unknown groups have separate original and staff-adjusted views.
+A new revision or release marker resets exposure to unknown. See
+[patch exposure](patch-exposure.md) for the exact-quote workflow and limitations.
+
 The current revision's selected observations are the entire counting scope.
 This is not a statistical estimate of the server's population.
 

@@ -29,6 +29,7 @@ jobs:
       - run: python -m seismograph investigate-demo
       - run: python -m seismograph changes-demo
       - run: python -m seismograph review-demo
+      - run: python -m seismograph exposure-demo
       - run: python -m seismograph evaluate --output /tmp/evaluation-smoke.json
       - run: python tools/blind_review.py prepare --output /tmp/fresh-review
       - run: python tools/benchmark.py --messages 20000
@@ -46,6 +47,8 @@ jobs:
         run: docker run --rm seismograph:ci changes-demo
       - name: Staff review demo runs in the image
         run: docker run --rm seismograph:ci review-demo
+      - name: Patch exposure demo runs in the image
+        run: docker run --rm seismograph:ci exposure-demo
       - name: Offline evaluator and packaged fixtures run in the image
         run: docker run --rm seismograph:ci evaluate --output /tmp/evaluation-smoke.json
       - name: Image runs as a non-root user

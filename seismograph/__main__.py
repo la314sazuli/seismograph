@@ -219,6 +219,16 @@ def main(argv: list[str] | None = None) -> int:
         "review-demo", help="Replay staff corrections and withdrawals without any connection."
     ).set_defaults(handler=review_demo)
 
+    def exposure_demo(_args):
+        from .exposure_demo import run
+
+        print(run(), end="")
+        return 0
+
+    subparsers.add_parser(
+        "exposure-demo", help="Replay quote-backed patch exposure without credentials or a model."
+    ).set_defaults(handler=exposure_demo)
+
     subparsers.add_parser("run", help="Run the Discord bot.").set_defaults(handler=cmd_run)
 
     demo = subparsers.add_parser("demo", help="Render a report from synthetic fixtures.")

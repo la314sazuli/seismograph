@@ -16,7 +16,7 @@ from .report import split_for_discord
 log = logging.getLogger(__name__)
 
 
-async def _respond(client, interaction, case_id, operation=None, page=1):
+async def _respond(client, interaction, case_id, operation=None, page=1, *, module=case_reviews):
     if interaction.guild_id != client.config.guild_id:
         return
     await interaction.response.defer(ephemeral=True)
@@ -26,10 +26,10 @@ async def _respond(client, interaction, case_id, operation=None, page=1):
         async with client.report_lock:
             await client.preflight()
             prefix = operation() if operation else ""
-            review = case_reviews.view(client.connection, case_id, client.config.source_channel_ids)
-            text = prefix + case_reviews.render(review, client.config.guild_id, page)
+            review = module.view(client.connection, case_id, client.config.source_channel_ids)
+            text = prefix + module.render(review, client.config.guild_id, page)
             for chunk in split_for_discord(text):
-                case_reviews.assert_current(client.connection, review)
+                module.assert_current(client.connection, review)
                 await interaction.followup.send(
                     chunk,
                     ephemeral=True,
@@ -43,8 +43,8 @@ async def _respond(client, interaction, case_id, operation=None, page=1):
     except discord.HTTPException:
         log.exception("Discord access failed during staff review")
         await interaction.followup.send(
-            "Discord access failed. A submitted correction may already be saved; "
-            "read /seismograph_reviews before retrying.",
+            "Discord access failed. A submitted annotation may already be saved; "
+            "read its current review or exposure view before retrying.",
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )

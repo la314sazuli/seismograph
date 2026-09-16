@@ -12,6 +12,7 @@ pytest
 python -m seismograph demo
 python -m seismograph changes-demo
 python -m seismograph review-demo
+python -m seismograph exposure-demo
 ```
 
 The demos and the test suite run without a Discord token or an API key.

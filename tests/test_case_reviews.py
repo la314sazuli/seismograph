@@ -294,7 +294,7 @@ def test_v3_migration_preserves_revisions_and_initializes_unique_keys(tmp_path, 
         assert len(set(keys)) == 2 and all(len(key) == 32 for key in keys)
         assert cases.load(migrated, cid)[1] == data[1]
         assert not migrated.execute("PRAGMA foreign_key_check").fetchall()
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == storage.SCHEMA_VERSION
     finally:
         migrated.close()
     again = storage.connect(path)

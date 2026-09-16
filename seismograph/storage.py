@@ -10,7 +10,37 @@ from .scoring import Signal
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
+
+EXPOSURE_SCHEMA = """
+ALTER TABLE cases ADD COLUMN intervention_key TEXT;
+UPDATE cases SET intervention_key = lower(hex(randomblob(16)))
+    WHERE intervention_at IS NOT NULL;
+CREATE TRIGGER rotate_intervention_key AFTER UPDATE OF intervention_at, intervention_note ON cases
+BEGIN
+    UPDATE cases SET intervention_key = CASE WHEN NEW.intervention_at IS NULL THEN NULL
+        ELSE lower(hex(randomblob(16))) END WHERE id = NEW.id;
+END;
+CREATE TABLE case_exposures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    revision_id INTEGER NOT NULL REFERENCES case_revisions(id) ON DELETE CASCADE,
+    intervention_key TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('received', 'not_received', 'unknown')),
+    quote TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    reviewer_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX case_exposures_revision ON case_exposures(revision_id, id);
+CREATE INDEX case_exposures_reviewer ON case_exposures(reviewer_hash);
+CREATE TRIGGER erase_reviewer_exposures AFTER INSERT ON optouts
+BEGIN
+    DELETE FROM case_exposures WHERE (revision_id, message_id) IN (
+        SELECT revision_id, message_id FROM case_exposures WHERE reviewer_hash = NEW.author_hash
+    );
+END;
+"""
 
 REVIEW_SCHEMA = """
 ALTER TABLE case_revisions ADD COLUMN review_key TEXT NOT NULL DEFAULT '';
@@ -161,7 +191,7 @@ def connect(path: str) -> sqlite3.Connection:
             + "\nPRAGMA user_version = 2;\nCOMMIT;"
         )
         version = 2
-    elif version not in (2, 3, SCHEMA_VERSION):
+    elif version not in (2, 3, 4, SCHEMA_VERSION):
         raise RuntimeError(
             f"database schema version {version} does not match expected {SCHEMA_VERSION}"
         )
@@ -173,6 +203,11 @@ def connect(path: str) -> sqlite3.Connection:
     if version == 3:
         connection.executescript(
             "BEGIN IMMEDIATE;\n" + REVIEW_SCHEMA + "\nPRAGMA user_version = 4;\nCOMMIT;"
+        )
+        version = 4
+    if version == 4:
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n" + EXPOSURE_SCHEMA + "\nPRAGMA user_version = 5;\nCOMMIT;"
         )
     return connection
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased: patch exposure
+
+- Quote-backed staff assessments separate `received`, `not_received`, and
+  `unknown` exposure to a specific patch. Post-release timestamps never imply
+  patch installation, and segmentation does not change case resolution status.
+- Original and staff-adjusted outcomes remain separate. Within-group reporter
+  conflicts and cross-group overlap are explicit; no rollout percentage is inferred.
+- Two private administrator commands, fresh revision/release scope keys,
+  append-only resets, bounded audit, and per-chunk invalidation guards.
+- Schema v5 preserves existing cases and corrections. Source invalidation
+  cascades to exposure history; reviewer opt-out cannot revive superseded claims.
+- Credential-free `exposure-demo`, regression tests, and CI/Docker replay.
+  No new runtime dependency or live-service access.
+
 ## 0.3.0: evidence-backed investigations
 
 - Perplexity Sonar is now the primary README and `.env.example` setup; compatible
