@@ -209,6 +209,16 @@ def main(argv: list[str] | None = None) -> int:
         "changes-demo", help="Replay fictional case changes without credentials or a model."
     ).set_defaults(handler=changes_demo)
 
+    def review_demo(_args):
+        from .case_review_demo import run
+
+        print(run(), end="")
+        return 0
+
+    subparsers.add_parser(
+        "review-demo", help="Replay staff corrections and withdrawals without any connection."
+    ).set_defaults(handler=review_demo)
+
     subparsers.add_parser("run", help="Run the Discord bot.").set_defaults(handler=cmd_run)
 
     demo = subparsers.add_parser("demo", help="Render a report from synthetic fixtures.")

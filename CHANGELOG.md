@@ -2,6 +2,12 @@
 
 ## 0.3.0: evidence-backed investigations
 
+- Revision-bound staff corrections and reasoned withdrawals, with original
+  model output preserved and a separately labeled follow-up-count preview.
+- Private administrator review commands, stale-key rejection, bounded paginated
+  audit, reviewer opt-outs, and source-invalidation cascades.
+- Schema v4 migration and a credential-free `review-demo`, exercised in CI and Docker.
+
 This version extends the large-community pilot work with an administrator-only
 investigation workflow. It remains an experimental, self-hosted tool, not a
 production-capacity certification or an official Perplexity integration.

@@ -10,7 +10,41 @@ from .scoring import Signal
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+REVIEW_SCHEMA = """
+ALTER TABLE case_revisions ADD COLUMN review_key TEXT NOT NULL DEFAULT '';
+UPDATE case_revisions SET review_key = lower(hex(randomblob(16)));
+CREATE UNIQUE INDEX case_revision_review_key ON case_revisions(review_key);
+CREATE INDEX case_revisions_case ON case_revisions(case_id, id);
+CREATE TRIGGER assign_review_key AFTER INSERT ON case_revisions
+BEGIN
+    UPDATE case_revisions SET review_key = lower(hex(randomblob(16))) WHERE id = NEW.id;
+END;
+CREATE TABLE case_corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    revision_id INTEGER NOT NULL REFERENCES case_revisions(id) ON DELETE CASCADE,
+    message_id TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK(outcome IN
+        ('failure', 'success', 'counterexample', 'workaround', 'unclear', 'exclude')),
+    reason TEXT NOT NULL,
+    reviewer_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX case_corrections_revision ON case_corrections(revision_id, id);
+CREATE TABLE case_withdrawals (
+    correction_id INTEGER PRIMARY KEY REFERENCES case_corrections(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    reviewer_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TRIGGER erase_reviewer_corrections AFTER INSERT ON optouts
+BEGIN
+    DELETE FROM case_corrections WHERE reviewer_hash = NEW.author_hash
+        OR id IN (SELECT correction_id FROM case_withdrawals
+                  WHERE reviewer_hash = NEW.author_hash);
+END;
+"""
 
 CASE_SCHEMA = """
 CREATE TABLE cases (
@@ -127,13 +161,18 @@ def connect(path: str) -> sqlite3.Connection:
             + "\nPRAGMA user_version = 2;\nCOMMIT;"
         )
         version = 2
-    elif version not in (2, SCHEMA_VERSION):
+    elif version not in (2, 3, SCHEMA_VERSION):
         raise RuntimeError(
             f"database schema version {version} does not match expected {SCHEMA_VERSION}"
         )
     if version == 2:
         connection.executescript(
             "BEGIN IMMEDIATE;\n" + CASE_SCHEMA + "\nPRAGMA user_version = 3;\nCOMMIT;"
+        )
+        version = 3
+    if version == 3:
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n" + REVIEW_SCHEMA + "\nPRAGMA user_version = 4;\nCOMMIT;"
         )
     return connection
 

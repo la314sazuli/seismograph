@@ -34,6 +34,11 @@ command separates newly selected evidence from rewritten interpretations and
 flags apparent recovery caused by omitted failure observations. Read
 [the change-log guide](docs/case-changes.md) for its limits.
 
+To challenge a wrong outcome label without rewriting the evidence, try
+`python -m seismograph review-demo`. Staff can record revision-bound corrections
+and withdrawals, with a separately labeled count preview and privacy-aware
+audit. See [staff review](docs/staff-review.md) for commands and upgrade steps.
+
 ## Evaluate without Discord
 
 Run `python -m seismograph evaluate --output evaluation-smoke.json` for an
@@ -234,6 +239,7 @@ The scheduler, manual command, and synthetic demo reuse the same domain logic.
 `cases.py` validates case evidence and computes follow-up status;
 `case_commands.py` exposes administrator-only ephemeral workflows.
 `case_history.py` compares retained snapshots without a model or new storage.
+`case_reviews.py` keeps revision-bound staff corrections separate from model output.
 `research.py` accepts only an explicitly approved public query and source
 domains, never a database or case object. There is no autonomous research loop.
 
@@ -277,6 +283,11 @@ affected cases while retaining a suppression hash. Retention also removes
 expired reports, evidence and feedback
 from SQLite. Already-posted Discord reports, provider-held data, and backups
 need separate operator handling; there is no legal-compliance guarantee.
+
+Staff corrections and withdrawals cascade with invalidated case revisions.
+Reviewer opt-out removes their review records without reactivating withdrawn
+corrections. See [staff review](docs/staff-review.md) for privacy and schema-v4
+upgrade details.
 
 Other limitations:
 

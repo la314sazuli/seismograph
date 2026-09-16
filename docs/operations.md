@@ -8,6 +8,11 @@ latency, and analysis quality. This project has not been validated against a liv
 
 ## Before enabling collection
 
+When upgrading an existing installation, stop the old process and take a
+consistent database backup first. Staff review migrates schema v1–v3 to v4;
+rollback to an older binary requires the pre-upgrade backup. See
+[staff review](staff-review.md) for the new retained data and deletion behavior.
+
 - Obtain the server owner's approval for the specific feedback channels. Avoid
   general chat and channels likely to contain sensitive support or account data.
 - Disclose what is collected, the model provider, retention, and how to opt out.

@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 from discord.utils import escape_markdown
 
-from . import case_history, cases, storage
+from . import case_history, case_reviews, cases, review_commands, storage
 from .analysis import AnalysisError, LLMClient, prepare
 from .pipeline import utc_iso
 from .report import split_for_discord
@@ -20,6 +20,8 @@ log = logging.getLogger(__name__)
 
 
 def register(client) -> None:
+    review_commands.register(client)
+
     @client.tree.command(
         name="seismograph_changes",
         description="Compare the last two retained case revisions without a model call.",
@@ -40,8 +42,13 @@ def register(client) -> None:
                     client.connection, case_id, client.config.source_channel_ids
                 )
                 text = case_history.render(comparison, client.config.guild_id)
+                review = case_reviews.view(
+                    client.connection, case_id, client.config.source_channel_ids
+                )
+                text += case_reviews.banner(review)
                 for chunk in split_for_discord(text):
                     case_history.assert_current(client.connection, comparison)
+                    case_reviews.assert_current(client.connection, review)
                     await interaction.followup.send(
                         chunk,
                         ephemeral=True,
@@ -177,7 +184,12 @@ def register(client) -> None:
                 if any(int(m.channel_id) not in client.config.source_channel_ids for m in retained):
                     raise AnalysisError("Case includes a source outside the current allowlist")
                 text = cases.render(client.connection, case_id, client.config.guild_id)
+                review = case_reviews.view(
+                    client.connection, case_id, client.config.source_channel_ids
+                )
+                text += case_reviews.banner(review)
                 for chunk in split_for_discord(text):
+                    case_reviews.assert_current(client.connection, review)
                     await interaction.followup.send(
                         chunk,
                         ephemeral=True,

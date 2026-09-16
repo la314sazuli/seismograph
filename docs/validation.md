@@ -6,22 +6,24 @@ results.
 
 | Check | Result |
 | --- | --- |
-| `pytest` | 295 passed in 4.21 seconds; one upstream `audioop` deprecation warning |
-| Original offline integration pilot | 11 passed, included in the 295-test total |
+| `pytest` | 338 passed in 6.39 seconds; one upstream `audioop` deprecation warning |
+| Original offline integration pilot | 11 passed, included in the 338-test total |
 | Investigation and pre-merge regression coverage | 53 additional tests, included in the total |
 | Evaluation regression coverage | 32 tests, included in the total; malformed predictions, false reassurance, answer-key separation, and bounded requests |
 | Fresh-set and review-tool coverage | 19 tests, included in the total; frozen hashes, packet metadata separation, empty ratings, missing outputs, baseline opt-in and budgets |
 | Case change-log coverage | 23 tests, included in the total; context versus interpretation, lost failures, privacy invalidation, current-marker comparisons, stale sends, and staff-only command handling |
+| Staff-review coverage | 43 tests, included in the total; correction previews, withdrawal audits, fresh revision keys, v3-to-v4 migration, opt-outs, allowlists, pagination, and command privacy |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
 | `python -m seismograph demo` | Passed without credentials or network calls |
 | `python -m seismograph investigate-demo` | Passed without credentials or network calls |
 | `python -m seismograph changes-demo` | Passed without credentials or network calls; demonstrates omitted failure evidence and privacy-invalidated history |
+| `python -m seismograph review-demo` | Passed without credentials or network calls; deliberately wrong recorded label corrected without altering source/model output, withdrawal, and privacy erasure |
 | `python -m seismograph evaluate` | All 12 reference-replay cases passed; zero provider calls; scorer consistency only, not model accuracy |
 | Fresh review preparation | Ten additional cases; blank two-reviewer packet generated; zero real provider calls or human ratings |
-| Build and install | Built the updated 0.3.0 wheel, installed in a fresh Python 3.12 environment, ran all three demos and the evaluator outside the source tree; fresh review tooling is source-checkout-only |
+| Build and install | Built the updated 0.3.0 wheel, installed in a fresh Python 3.12 environment, ran all four demos and the evaluator outside the source tree; fresh review tooling is source-checkout-only |
 | Installed dependencies | Compatible according to `uv pip check` |
-| 20,000 synthetic messages | 1.252 seconds total; 72.4 MiB peak RSS; 92 recorded-classifier batches |
+| 20,000 synthetic messages | 1.410 seconds total; 72.5 MiB peak RSS; 92 recorded-classifier batches |
 | 100,000 synthetic messages, earlier 0.2 baseline only | 5.104 seconds total; 162.6 MiB peak RSS; 459 recorded-classifier batches; not rerun for 0.3 |
 
 The benchmark exercises SQLite ingestion, preprocessing, validation,
@@ -37,10 +39,32 @@ migration, scheduling, changed evidence, and ambiguous send failures.
 
 Docker is not available in this local sandbox. The `checks` workflow runs a
 Python 3.12, 3.13, and 3.14 matrix and a separate Docker job, including the
-investigation demo, case changes demo, and offline evaluator inside the image. Check the CI results on the exact current
+investigation, case changes, and staff review demos plus the offline evaluator
+inside the image. Check the CI results on the exact current
 head of [PR #2](https://github.com/la314sazuli/seismograph/pull/2) before relying
 on them; earlier Docker results do not validate a newer revision.
 No live Discord integration test or real-model quality evaluation was performed.
+
+## Staff-review checks
+
+`tests/test_case_reviews.py` verifies that human annotations never overwrite
+the source messages or original model payload. Preview counts are separate,
+withdrawals retain both reasons, duplicate active corrections are refused,
+and revisions never silently inherit corrections.
+
+The migration test preserves existing v3 payloads and assigns distinct revision
+keys. Another regression deletes and recreates a revision with the same numeric
+SQLite ID: the old opaque key is rejected. Other checks cover invalid outcomes,
+missing observations, stale keys, redaction, scope restrictions, bounded audit
+pagination, and opt-outs by either the correction author or withdrawal author.
+Erasing a withdrawal cannot reactivate its parent correction.
+
+Mocked Discord commands test runtime administrator checks, private replies,
+permission-preflight failures before writes, busy locks, no model calls, and
+stopping later reply chunks after privacy erasure. Normal case and change-log
+cards show an active-review warning without changing their original counts.
+These are synthetic engineering checks, not independent human review or a
+guarantee that a staff correction is correct. See [staff review](staff-review.md).
 
 ## Case change-log checks
 
@@ -170,6 +194,7 @@ ruff format --check .
 python -m seismograph demo
 python -m seismograph investigate-demo
 python -m seismograph changes-demo
+python -m seismograph review-demo
 python -m seismograph evaluate --output evaluation-smoke.json
 python tools/blind_review.py prepare --output fresh-review
 ```

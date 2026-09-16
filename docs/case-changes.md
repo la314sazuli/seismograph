@@ -62,6 +62,10 @@ verification status, suppress a warning automatically, establish causality,
 or certify resolution. The earlier frozen investigation prompt and counting
 rules remain unchanged.
 
+Staff corrections are now available in the separate [review workflow](staff-review.md).
+The change log still compares original model interpretations, not staff-adjusted
+previews, and displays a warning when the latest revision has active corrections.
+
 ## Privacy and storage
 
 No schema migration, new persistent table, provider request, or runtime

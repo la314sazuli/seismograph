@@ -23,7 +23,7 @@ Reading an old card does not re-run analysis or imply the state is current.
 
 ## Staff commands
 
-All three commands are guild-only and require administrator permission at
+The commands below are guild-only and require administrator permission at
 invocation, not just a default command visibility setting. Replies are ephemeral.
 
 ```text
@@ -71,6 +71,11 @@ when prior failure observations disappear or are relabeled, rather than
 assuming the better status means recovery. Both snapshots use the current
 intervention marker, not historical marker state. See
 [case changes](case-changes.md) for exact scope and privacy behavior.
+
+Staff can annotate an incorrect outcome through `/seismograph_reviews`,
+`/seismograph_correct`, and `/seismograph_withdraw`. Original model counts stay
+unchanged; a separately labeled preview applies current-revision corrections.
+See [staff review](staff-review.md) for revision keys, audit and privacy limits.
 
 The current revision's selected observations are the entire counting scope.
 This is not a statistical estimate of the server's population.

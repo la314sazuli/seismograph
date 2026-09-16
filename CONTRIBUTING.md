@@ -11,6 +11,7 @@ pip install -e ".[dev]"
 pytest
 python -m seismograph demo
 python -m seismograph changes-demo
+python -m seismograph review-demo
 ```
 
 The demos and the test suite run without a Discord token or an API key.

@@ -211,7 +211,7 @@ def test_v2_database_migrates_without_losing_message_data(tmp_path, case_data):
     old.close()
     migrated = storage.connect(path)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == storage.SCHEMA_VERSION
         case_id = cases.save(migrated, case_data[1], case_data[0])
         assert cases.load(migrated, case_id)[1] == case_data[1]
         assert not migrated.execute("PRAGMA foreign_key_check").fetchall()
