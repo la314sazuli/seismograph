@@ -1,12 +1,13 @@
 # Local validation
 
-Measured on 2026-09-16 in a Linux sandbox with Python 3.12, 2 vCPUs and 8 GiB RAM.
+Measured on 2026-09-16 UTC in a Linux sandbox with Python 3.12, 2 vCPUs and 8 GiB RAM.
 These are synthetic engineering checks, not production capacity or model-quality
 results.
 
 | Check | Result |
 | --- | --- |
-| `pytest` | 157 passed; one upstream `audioop` deprecation warning |
+| `pytest` | 168 passed in 2.92 seconds; one upstream `audioop` deprecation warning |
+| Offline integration pilot | 11 passed, included in the 168-test total |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
 | `python -m seismograph demo` | Passed without credentials or network calls |
@@ -26,3 +27,62 @@ migration, scheduling, changed evidence, and ambiguous send failures.
 
 Docker is verified by the repository's `checks` workflow, not this local sandbox.
 No live Discord integration test or real-model quality evaluation was performed.
+
+## Credential-free integration pilot
+
+`tests/test_offline_pilot.py` runs the real collection, privacy filtering, SQLite
+storage, analysis, scoring, scheduling, rendering, and publication-state code.
+The model client makes real HTTP requests to a temporary loopback server, which
+returns recorded synthetic classifications in the expected response envelope.
+Discord channel objects, history, events, permissions, and sends are simulated.
+The test clock is fixed so scheduler and retention checks are repeatable.
+
+The fixture contains 46 synthetic messages, folded into two source channels.
+The successful report analyzes 42 messages after filtering. No real community
+data, Discord credentials, or paid model calls are used, and no messages are
+sent to Discord.
+
+| Scenario | Verified result |
+| --- | --- |
+| Two-channel report | Correct analyzed-message and distinct-user counts, review and counter-signal sections, evidence links, and chunks within 2,000 characters |
+| Privacy boundary | Fixture email, IP address, and token removed before HTTP; local author hashes absent from the prompt and report |
+| Instruction separation | Injection-like fixture text stays in user-supplied evidence, not the system prompt; this does not prove a live model will resist injection |
+| Scheduler restart | Reopening the same database does not repeat a completed scheduled report or model request |
+| Temporary HTTP failure | One simulated HTTP 503 is retried successfully |
+| Malformed model output | One malformed response is repaired; repeated malformed output stops after two requests without posting |
+| Public report channel | Simulated visibility to everyone prevents analysis and posting |
+| Unreadable source | Missing simulated read permissions prevents analysis and posting |
+| Opt-out | The command removes local author evidence and subsequent history backfill does not restore it |
+| Edits and deletions | Changed content reaches the analysis snapshot; deleted evidence does not |
+| Staff feedback | Non-administrator reaction is ignored; administrator feedback is recorded and removable |
+| Collection limit | Exceeding the configured message cap stops before any model request or post |
+
+These scenarios are covered by 11 tests; some tests assert multiple boundaries.
+The new test suite adds no production dependencies or runtime features.
+
+## Reproduce
+
+From the repository root, with Python 3.12 and the development dependencies
+installed:
+
+```sh
+python -m pip install -e '.[dev]'
+python -m pytest tests/test_offline_pilot.py -o addopts='' -q
+python -m pytest -o addopts='' -q
+ruff check .
+ruff format --check .
+python -m seismograph demo
+```
+
+The tests supply fake configuration and temporary storage; do not add real
+credentials. The offline integration tests require permission to bind a local
+loopback port. Installing dependencies requires network access if they are not
+already installed.
+
+## Remaining live checks
+
+The passing suite is not a production approval for a 500,000-member server.
+It does not establish actual Discord permissions, gateway delivery, rate-limit
+handling under live traffic, target-host reliability, or real-model accuracy and
+prompt-injection resistance. Those still require an authorized, limited live
+pilot and representative model evaluation before production use.
