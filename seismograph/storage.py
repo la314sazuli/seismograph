@@ -10,7 +10,7 @@ from .scoring import Signal
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE messages (
@@ -74,11 +74,22 @@ def connect(path: str) -> sqlite3.Connection:
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA busy_timeout = 5000")
+    connection.execute("PRAGMA secure_delete = ON")
     version = connection.execute("PRAGMA user_version").fetchone()[0]
-    if version == 0:
-        connection.executescript(SCHEMA)
-        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        connection.commit()
+    if version in (0, 1):
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n"
+            + (SCHEMA if version == 0 else "")
+            + """
+        ALTER TABLE runs ADD COLUMN status TEXT NOT NULL DEFAULT 'analyzing';
+        UPDATE runs SET status = CASE WHEN published = 1 THEN 'published' ELSE 'uncertain' END;
+        CREATE TABLE optouts (author_hash TEXT PRIMARY KEY);
+        CREATE INDEX messages_channel_time ON messages(channel_id, created_at);
+        """
+            + f"\nPRAGMA user_version = {SCHEMA_VERSION};\nCOMMIT;"
+        )
     elif version != SCHEMA_VERSION:
         raise RuntimeError(
             f"database schema version {version} does not match expected {SCHEMA_VERSION}"
@@ -87,21 +98,35 @@ def connect(path: str) -> sqlite3.Connection:
 
 
 def store_messages(connection: sqlite3.Connection, messages: list[dict]) -> int:
-    """Insert messages, ignoring ones already stored. Returns rows inserted."""
+    """Upsert changed content, excluding opted-out authors. Return changed rows."""
     cursor = connection.executemany(
         "INSERT OR IGNORE INTO messages (message_id, channel_id, author_hash, created_at, content)"
-        " VALUES (:message_id, :channel_id, :author_hash, :created_at, :content)",
+        " SELECT :message_id, :channel_id, :author_hash, :created_at, :content"
+        " WHERE NOT EXISTS (SELECT 1 FROM optouts WHERE author_hash = :author_hash)"
+        " ON CONFLICT(message_id) DO UPDATE SET content = excluded.content"
+        " WHERE messages.content != excluded.content",
         messages,
     )
     connection.commit()
     return cursor.rowcount
 
 
-def messages_between(connection: sqlite3.Connection, start: str, end: str) -> list[dict]:
+def messages_between(
+    connection: sqlite3.Connection,
+    start: str,
+    end: str,
+    channel_ids: tuple[int, ...] | None = None,
+    limit: int = 20_001,
+) -> list[dict]:
+    scope = ""
+    params: list = [start, end]
+    if channel_ids is not None:
+        scope = f" AND channel_id IN ({','.join('?' for _ in channel_ids)})"
+        params.extend(str(i) for i in channel_ids)
     rows = connection.execute(
         "SELECT message_id, channel_id, author_hash, created_at, content FROM messages"
-        " WHERE created_at >= ? AND created_at < ? ORDER BY created_at, message_id",
-        (start, end),
+        f" WHERE created_at >= ? AND created_at < ?{scope} ORDER BY created_at, message_id LIMIT ?",
+        (*params, limit),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -133,9 +158,13 @@ def previous_message_counts(
     coarse but transparent. Titles that drift between runs are simply treated
     as new, which the score handles with the neutral growth default.
     """
+    current = connection.execute("SELECT * FROM runs WHERE id = ?", (before_run_id,)).fetchone()
+    start = datetime.fromisoformat(current["period_start"])
+    duration = datetime.fromisoformat(current["period_end"]) - start
     row = connection.execute(
-        "SELECT id FROM runs WHERE id < ? AND published = 1 ORDER BY id DESC LIMIT 1",
-        (before_run_id,),
+        "SELECT id FROM runs WHERE id < ? AND published = 1 AND period_start = ?"
+        " AND period_end = ? ORDER BY id DESC LIMIT 1",
+        (before_run_id, (start - duration).isoformat(timespec="seconds"), current["period_start"]),
     ).fetchone()
     if row is None:
         return {}
@@ -176,7 +205,7 @@ def save_signals(connection: sqlite3.Connection, run_id: int, signals: list[Sign
 
 def mark_published(connection: sqlite3.Connection, run_id: int, report_message_id: str) -> None:
     connection.execute(
-        "UPDATE runs SET published = 1, report_message_id = ? WHERE id = ?",
+        "UPDATE runs SET published = 1, status = 'published', report_message_id = ? WHERE id = ?",
         (report_message_id, run_id),
     )
     connection.commit()
@@ -210,6 +239,40 @@ def prune(connection: sqlite3.Connection, retention_days: int, now: datetime | N
     now = now or datetime.now(UTC)
     cutoff = (now - timedelta(days=retention_days)).isoformat(timespec="seconds")
     cursor = connection.execute("DELETE FROM messages WHERE created_at < ?", (cutoff,))
+    deleted = cursor.rowcount
+    connection.execute("DELETE FROM runs WHERE period_end < ?", (cutoff,))
+    connection.execute(
+        "DELETE FROM evidence WHERE message_id NOT IN (SELECT message_id FROM messages)"
+    )
     connection.commit()
-    log.info("pruned %d message(s) older than %s", cursor.rowcount, cutoff)
-    return cursor.rowcount
+    connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    log.info("pruned %d message(s) older than %s", deleted, cutoff)
+    return deleted
+
+
+def set_status(connection: sqlite3.Connection, run_id: int, status: str) -> None:
+    connection.execute("UPDATE runs SET status = ? WHERE id = ?", (status, run_id))
+    connection.commit()
+
+
+def forget_messages(connection: sqlite3.Connection, ids: list[str]) -> None:
+    for message_id in ids:
+        connection.execute(
+            "DELETE FROM signals WHERE id IN (SELECT signal_id FROM evidence WHERE message_id = ?)",
+            (message_id,),
+        )
+        connection.execute("DELETE FROM messages WHERE message_id = ?", (message_id,))
+    connection.commit()
+
+
+def opt_out(connection: sqlite3.Connection, author_hash: str) -> None:
+    ids = [
+        r[0]
+        for r in connection.execute(
+            "SELECT message_id FROM messages WHERE author_hash = ?", (author_hash,)
+        )
+    ]
+    forget_messages(connection, ids)
+    connection.execute("DELETE FROM feedback WHERE author_hash = ?", (author_hash,))
+    connection.execute("INSERT OR IGNORE INTO optouts VALUES (?)", (author_hash,))
+    connection.commit()

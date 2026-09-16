@@ -3,64 +3,59 @@
 Detect friction before it becomes an incident.
 
 [![checks](https://github.com/la314sazuli/seismograph/actions/workflows/checks.yml/badge.svg)](https://github.com/la314sazuli/seismograph/actions/workflows/checks.yml)
-![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Seismograph turns Discord feedback into evidence-backed product signals. It groups
-recurring complaints, identifies emerging friction, separates widespread problems
-from individual loudness, and produces a concise weekly report with links to the
-original messages.
-
-Individual complaints are small tremors. Seismograph exists to notice when those
-tremors form a pattern, while the pattern is still small enough to act on.
-
-It is not a conversation summarizer. It answers a narrower set of questions: what
-are users struggling with, how many distinct people are affected, which problems
-are growing, what did users expect, what did they observe instead, and which
-messages support each conclusion.
+Seismograph turns Discord feedback into evidence-backed product signals. It
+groups recurring complaints, identifies emerging friction, and posts a weekly
+staff report with links to the original messages. It is an independent,
+MIT-licensed, self-hosted project.
 
 ## What it does
 
-- Reads messages only from explicitly allowlisted channels in one guild. Direct
-  messages are never accessed.
-- Stores a message id, channel id, timestamp, redacted content, and an HMAC of the
-  author id. Usernames are never stored.
-- Classifies each signal as `broken`, `blocked`, `confusing`, `missing`,
-  `disliked`, or `praise` instead of positive/negative sentiment.
-- Weights distinct users above raw message volume, so one prolific reporter cannot
-  take over the report.
-- Computes a deterministic Tremor Score in application code. The model never
-  decides ranking.
-- Flags small, fast-forming, multi-user clusters as `emerging` before they become
-  the loudest topic.
-- Attaches an evidence packet with up to three jump links to every signal, and
-  rejects any signal whose supporting message ids were not in the analyzed input.
-- Shows well-supported praise as a separate counter-signal section, never netted
-  against complaints.
-- Publishes nothing when no signal clears the evidence thresholds.
-- Posts weekly on a schedule and on demand via an administrator-only
-  `/seismograph` command, recording completed periods so a scheduled report is
-  never posted twice.
-- Collects maintainer feedback through four reactions on the posted report.
+- Reads only allowlisted text channels or explicitly listed public threads in
+  one guild, without accessing DMs or downloading the member list.
+- Separates `broken`, `blocked`, `confusing`, `missing`, `disliked`, and `praise`.
+- Counts distinct pseudonymous authors, caps repetition's influence, and ranks
+  signals with a transparent deterministic score.
+- Preserves message-level evidence through batching and merging. The model
+  cannot supply user counts, scores, or invented evidence IDs.
+- Supports weekly catch-up scheduling and administrator-only `/seismograph`.
+- Stores redacted content in SQLite, supports `/seismograph_optout`, and handles
+  edits, deletions, retention, and administrator feedback reactions.
+- Bounds collection and model requests; stops rather than publishing partial
+  analysis when a limit or validation check fails.
 
-## Sample report
+This is a working MVP with large-community safeguards, not a claim of validated
+production capacity for any particular guild. Read the
+[large-community rollout checklist](docs/operations.md) before processing real data.
 
-Produced by `python -m seismograph demo` from the synthetic fixtures, abbreviated:
+## Install and try it
+
+Use Python 3.12+ on Linux or macOS, or the Linux Docker image.
+
+```bash
+git clone https://github.com/la314sazuli/seismograph.git
+cd seismograph
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+python -m seismograph demo
+```
+
+The default demo needs no credentials or paid API calls. It uses clearly labelled
+fictional fixtures and a recorded classification, then runs real preprocessing,
+evidence validation, scoring, and rendering. `demo --live` instead uses the
+configured model and currently requires full configuration.
+
+An abbreviated synthetic report:
 
 ```text
-# Seismograph — Weekly Friction Report
-
+Seismograph - Weekly Friction Report
 Period: August 3–9 (synthetic)
 Messages analyzed: 42
 Distinct contributors: 25
-Signals with sufficient evidence: 3
 
-## Strongest Tremors
-
-### 1. Saved workspace filters reset after reopening
-
+Saved workspace filters reset after reopening
 Category: broken
-Product surface: saved filters
 Tremor Score: 47/100
 Distinct users: 7
 Supporting messages: 9
@@ -68,261 +63,195 @@ Trend: rising
 Severity: 4/5
 Confidence: 0.88
 
-Expected: Saved filters should still be present the next time the workspace is opened.
-Reported: Users report that saved filters are missing after closing and reopening the
-workspace, while a plain refresh keeps them.
-
-Evidence:
-- https://discord.com/channels/.../.../900000000000000137
-- https://discord.com/channels/.../.../900000000000000274
-- https://discord.com/channels/.../.../900000000000000411
-
-Suggested next step: Attempt reproduction by saving filters, fully closing the
-workspace, and reopening it in a new session.
-
-## Emerging Signals
-## Counter-Signals
-## Needs Human Review
+Expected: Saved filters should remain when the workspace is reopened.
+Reported: Users report missing filters after closing and reopening.
+Evidence: Up to three original Discord jump links.
+Next step: Attempt reproduction with saved filters and a new session.
 ```
 
-## Architecture
+Reports include strongest tremors, emerging signals, independent praise, and up
+to three unranked signals needing human review. Main reports require at least
+2 distinct users, 3 supporting messages, and 0.5 confidence; praise requires
+3 users and 0.6 confidence. When no signal qualifies, nothing is posted.
 
-Messages arrive through `bot.py`, are redacted and pseudonymized immediately, and
-are written to SQLite by `storage.py`. When a report is requested, `pipeline.py`
-selects the window of whole local days, backfills anything missing from the
-allowlisted channels, and hands the messages to `analysis.py`. Stage one of
-analysis is deterministic: it drops bot messages, empty messages, bare commands
-and one-word acknowledgements, normalizes whitespace, and splits the remainder
-into context-sized batches while preserving every message id. Stage two sends each
-batch to an OpenAI-compatible chat-completions endpoint with the prompts in
-`prompts.py` and asks only for classification and evidence selection. Every model
-response is validated against the actual input: unknown message ids, malformed
-categories, out-of-range severities, and signals without evidence are rejected,
-and counts, dates and distinct users are measured from the referenced messages
-rather than read from the model. A failed validation earns exactly one repair
-request before the run is abandoned without publishing. `scoring.py` then attaches
-trends and Tremor Scores in plain arithmetic, `report.py` sorts signals into
-sections and renders Markdown split to fit Discord's message limit, and the run,
-its signals, and their evidence links are stored so the next report can measure
-growth and so a scheduled period is never processed twice.
+## Discord setup
 
-## Tremor Score
+1. Create an application and bot in the Discord Developer Portal.
+2. Enable Message Content Intent and obtain any required privileged-intent
+   approval. Server Members and Presence intents are unnecessary.
+3. Invite with `bot` and `applications.commands` scopes.
+4. Grant View Channel and Read Message History only in the selected sources.
+5. Create a staff-only text channel, deny `@everyone` View Channel, and grant
+   the bot View Channel, Read Message History, Send Messages, and Add Reactions.
+6. Check all custom role overwrites. Report readers must be authorized to see
+   information from every source channel.
+7. Disclose collection, provider processing, retention, opt-outs, and a private
+   support contact to the community before starting.
 
-A signal's score is a weighted sum of six normalized components, discounted by
-confidence, then rounded to an integer between 0 and 100:
+The bot checks source/destination permissions at startup and before reporting.
+Public threads need their own IDs; allowlisting a parent does not include its
+threads. Forum containers and private threads are not supported.
 
-```text
-breadth  = log1p(distinct_users) / log1p(50)                    weight 0.40
-severity = (severity - 1) / 4                                   weight 0.25
-growth   = log((m + 1) / (previous_m + 1)) / log(4)             weight 0.13
-velocity = log1p(messages_per_day) / log1p(10)                  weight 0.12
-novelty  = 1 if previous_m == 0 else 0                          weight 0.05
-repeat   = log1p(max(0, m - distinct_users)) / log1p(20)        weight 0.05
+Discord's [Gateway documentation](https://discord.com/developers/docs/events/gateway)
+describes Message Content Intent and review requirements. The
+[Developer Policy](https://support-dev.discord.com/hc/en-us/articles/8563934450327-Discord-Developer-Policy)
+restricts data use and prohibits model training on message content without
+express permission. Server approval is not a substitute for required platform
+approval or an acceptable provider data policy.
 
-score = 100 * weighted_sum * (0.4 + 0.6 * confidence)
-```
+## Configuration
 
-Every component is clamped to `[0, 1]`, so a large community cannot produce an
-unbounded score. Breadth carries eight times the weight of repetition, and
-repetition saturates after about twenty extra messages: twenty messages from one
-user cannot outrank ten reports from ten users. When no comparable previous period
-is stored, growth and novelty use neutral values (`0.35` and `0.5`) so a first run
-neither inflates nor suppresses scores. Signals are matched across runs by
-normalized title and category; a title that changes between runs is treated as
-unseen.
+All configuration comes from environment variables. `.env` files are not
+automatically loaded.
 
-A signal is relabelled `emerging` when it has at most one message in the previous
-period, at least three distinct users, all supporting messages inside a 48-hour
-window, confidence of at least 0.6, and fewer messages than half of the largest
-non-praise cluster.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DISCORD_TOKEN` | required | Bot token. |
+| `DISCORD_GUILD_ID` | required | Single guild ID. |
+| `SOURCE_CHANNEL_IDS` | required | Comma-separated explicit source IDs. |
+| `REPORT_CHANNEL_ID` | required | Staff-only text channel, not a source. |
+| `LLM_API_KEY` | required | Chat-completions bearer token. |
+| `LLM_BASE_URL` | required | HTTPS base URL, such as `https://api.example.com/v1`. Localhost HTTP is allowed. |
+| `LLM_MODEL` | required | Model supporting JSON chat completions. |
+| `AUTHOR_HASH_SALT` | required | Random secret, at least 16 characters. |
+| `LLM_PROCESSING_APPROVED` | `false` | Must be `true` to run the bot after completing the rollout checklist. |
+| `REPORT_TIMEZONE` | `UTC` | IANA timezone. |
+| `REPORT_WEEKDAY` | `0` | Monday=0 through Sunday=6. |
+| `REPORT_HOUR` | `9` | Local hour, 0–23. |
+| `ANALYSIS_DAYS` | `7` | Whole local days per report. |
+| `RETENTION_DAYS` | `30` | Must be at least analysis days plus 7 for catch-up. |
+| `MAX_MESSAGES` | `20000` | Total scanned history and stored analysis cap per report. |
+| `MAX_LLM_REQUESTS` | `200` | HTTP attempt cap per report, including retries. |
+| `DATABASE_PATH` | `seismograph.db` | SQLite path; use `/data/seismograph.db` in Docker. |
 
-## Report sections
+Generate the author secret locally, for example with
+`python -c 'import secrets; print(secrets.token_hex(32))'`. Never commit it or
+rotate it without planning for broken opt-outs and historical author linkage.
 
-- **Strongest Tremors** — at least 2 distinct users, at least 3 supporting
-  messages, confidence at least 0.5.
-- **Emerging Signals** — clears the same bar and matches the emerging rule.
-- **Counter-Signals** — `praise` with at least 3 distinct users and confidence at
-  least 0.6. Praise is never subtracted from a complaint's severity or score.
-- **Needs Human Review** — at most three signals that missed the bar on breadth or
-  confidence, labelled unconfirmed and excluded from the ranking.
-
-If every section would be empty, no report is published.
-
-## Installation
-
-Requires Python 3.12 or newer.
+For a shell run, create and edit a local `.env` from `.env.example`, protect its
+permissions, then load your own trusted file:
 
 ```bash
-git clone https://github.com/la314sazuli/seismograph.git
-cd seismograph
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+chmod 600 .env
+set -a
+source .env
+set +a
+export DATABASE_PATH=./data/seismograph.db
+python -m seismograph run
 ```
 
-## Local demo
+Do not source a file from an untrusted contributor. No real `.env`, database,
+credentials, or user messages should be committed.
 
-The demo runs on synthetic fixtures with no Discord token and no paid API call:
+## Operation
 
 ```bash
-python -m seismograph demo
+python -m seismograph period        # current manual analysis window
+python -m seismograph runs          # recent run states
+python -m seismograph runs --retry 3 # only a failed pre-publication scheduled run
+python -m seismograph prune         # apply retention without network credentials
 ```
 
-It loads `seismograph/fixtures/synthetic_messages.json`, runs the real deterministic
-preparation and validation, substitutes a recorded structured analysis from
-`seismograph/fixtures/synthetic_analysis.json`, computes real Tremor Scores, and prints the
-Markdown report with a synthetic-data notice. All fixture content is fictional.
+The scheduler checks every five minutes and catches up the latest due weekly
+window on startup, so it can start model processing immediately. Scheduled
+periods are claimed before analysis; ambiguous send failures are never
+automatically reposted. This favors duplicate avoidance over guaranteed delivery.
+See [recovery procedures](docs/operations.md#schedule-and-recovery).
 
-Add `--live` to call the configured LLM instead of the recorded analysis. That
-path requires full configuration and will incur provider cost. A live run prints
-a summary to stderr before the report so a provider or prompt change can be
-judged on numbers rather than impressions:
-
-```text
-Live analysis summary
-  Messages analyzed: 42 in 1 batch(es); largest batch 42 message(s), 4910 prompt characters
-  Model requests: 2
-  Batches valid on first attempt: 0 of 1
-  Repair attempts: 1, recovered: 1
-  Candidates rejected: 1
-    unknown_message_ids: 1
-  Signals accepted: 5 (no merge pass needed)
-```
-
-Every rejection carries a stable `kind`, so the counts show which schema rule a
-model actually struggles with. Reasons from a first attempt are kept even when
-the repair succeeds. Scheduled and on-demand runs log the same summary.
-
-## Discord application setup
-
-1. Create an application and a bot user in the Discord Developer Portal.
-2. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**.
-   Server Members and Presence are not needed.
-3. Invite the bot with the `bot` and `applications.commands` scopes and these
-   permissions: View Channels, Read Message History, Send Messages, Add
-   Reactions. Nothing else is required.
-4. Restrict the bot's channel access to the channels you intend to analyze.
-5. On first start the `/seismograph` command is registered to your guild. It is
-   marked administrator-only; server administrators can further restrict it under
-   **Server Settings → Integrations**.
-
-Tell your community that messages in those channels are analyzed. Seismograph
-cannot do that for you.
-
-## Environment variables
-
-| Variable | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `DISCORD_TOKEN` | yes | — | Bot token. |
-| `DISCORD_GUILD_ID` | yes | — | The single guild to operate in. |
-| `SOURCE_CHANNEL_IDS` | yes | — | Comma-separated allowlist of channels to read. |
-| `REPORT_CHANNEL_ID` | yes | — | Channel that reports are posted to. |
-| `LLM_API_KEY` | yes | — | Key for the chat-completions endpoint. |
-| `LLM_BASE_URL` | yes | — | Base URL, e.g. `https://api.example.com/v1`. |
-| `LLM_MODEL` | yes | — | Model name passed to the endpoint. |
-| `AUTHOR_HASH_SALT` | yes | — | HMAC key for author pseudonyms, 16+ characters. |
-| `REPORT_TIMEZONE` | no | `UTC` | IANA timezone used for period boundaries. |
-| `ANALYSIS_DAYS` | no | `7` | Length of the analysis window in days. |
-| `RETENTION_DAYS` | no | `30` | How long stored messages are kept. |
-| `DATABASE_PATH` | no | `seismograph.db` | SQLite file location. |
-
-Copy `.env.example` and fill it in. Never commit a real `.env`. Missing or
-unusable configuration is reported in full at startup and the process exits.
-
-## Running
-
-```bash
-python -m seismograph run       # start the bot
-python -m seismograph period    # print the current analysis window
-python -m seismograph prune     # delete messages past the retention window
-```
-
-The weekly report is checked hourly and fires on Monday at 09:00 in
-`REPORT_TIMEZONE`. Completed scheduled periods are recorded, so a restart inside
-that hour cannot produce a second report for the same period.
+Only one process may use a database and only one report runs at a time.
+The slash command acknowledges immediately; long-run results and failures are
+reported in operator logs, avoiding expiring interaction tokens.
 
 ### Docker
 
 ```bash
 docker build -t seismograph .
-docker run --rm --env-file .env -v seismograph-data:/data seismograph
+docker run --rm --env-file .env \
+  -e DATABASE_PATH=/data/seismograph.db \
+  -v seismograph-data:/data seismograph
 ```
 
-The image runs as a non-root user and expects `DATABASE_PATH=/data/seismograph.db`
-with a volume mounted at `/data`, otherwise the database is lost when the
-container is replaced. Secrets are supplied at run time and are not baked in.
+The image runs as UID 10001. Mount persistent local storage at `/data`; do not
+put secrets in the image or use multiple replicas against one database.
 
-## LLM provider
+## Architecture
 
-Any endpoint that accepts an OpenAI-compatible
-`POST {LLM_BASE_URL}/chat/completions` with a bearer token works. Set
-`LLM_BASE_URL` and `LLM_MODEL` to point at a hosted provider, a gateway, or a
-local server. Requests are sent with `temperature: 0` and
-`response_format: {"type": "json_object"}`; a provider that ignores
-`response_format` still works as long as it returns a JSON object, since output is
-parsed and validated locally either way. No provider is referenced in the domain
-logic.
+`bot.py` collects bounded history and live events without member caching.
+`privacy.py` redacts obvious sensitive strings and HMACs author IDs.
+`storage.py` stores messages and run state directly in SQLite with WAL.
+`analysis.py` prepares bounded text batches and calls an OpenAI-compatible
+chat-completions endpoint in a worker thread.
+Validated candidates merge through bounded descriptor groups while Python
+retains and unions the original evidence IDs.
+`scoring.py` computes deterministic rankings, and `report.py` renders
+length-limited, mention-disabled reports.
+The scheduler, manual command, and synthetic demo reuse the same domain logic.
 
-## Privacy
+## Tremor Score
 
-- Only allowlisted channels in the configured guild are read. Direct messages are
-  never accessed.
-- Author ids are replaced with `HMAC-SHA256(AUTHOR_HASH_SALT, author_id)`
-  truncated to 32 hex characters, before storage. Usernames, nicknames, avatars,
-  and raw author ids are never stored. Author hashes never appear in a report.
-- Message content is redacted before it is stored or sent to the model: email
-  addresses, phone numbers, API-key-shaped strings, bearer tokens, long
-  high-entropy strings, IPv4 addresses, user mentions, and invite links are
-  replaced with placeholders. This is a best-effort filter, not a guarantee.
-- Reports link to original messages rather than reproducing their text.
-- Stored data is limited to what a report needs: message id, channel id, author
-  hash, timestamp, redacted content, plus analysis runs, signals, evidence links,
-  and reaction feedback.
-- `RETENTION_DAYS` bounds message retention and `python -m seismograph prune`
-  applies it. The scheduled weekly run prunes automatically.
-- Logs record counts, periods, and errors. Tokens, keys, salts, full environment
-  variables, and raw message bodies are never logged.
+Each component is clamped to `[0, 1]`; `m` means supporting messages.
 
-Server administrators remain responsible for disclosure, consent, and compliance
-in their jurisdiction. This software does not provide or guarantee legal
-compliance.
+```text
+B = log1p(distinct_users) / log1p(50)
+S = (severity - 1) / 4
+G = log((m + 1) / (previous_m + 1)) / log(4)
+V = log1p(m / period_days) / log1p(10)
+N = 1 if previous_m == 0 else 0
+R = log1p(max(0, m - distinct_users)) / log1p(20)
 
-## Tests and linting
+score = round(100 * (.40*B + .25*S + .13*G + .12*V + .05*N + .05*R)
+              * (.4 + .6*confidence))
+```
+
+Missing comparable history uses `G=0.35` and `N=0.5`. Repetition contributes at
+most five percentage points before the confidence discount. Twenty messages
+from one user do not beat ten independent reports solely through volume under
+otherwise identical inputs.
+
+History matches normalized title/category in an immediately preceding,
+equal-duration published window. Overlapping manual reports are excluded.
+Changed titles and unavailable comparable periods can make trends unreliable.
+A signal is `emerging` with at least 3 users, at most 1 prior message, a span
+no longer than 48 hours, confidence at least 0.6, and fewer than half the messages
+of the largest non-praise cluster.
+
+## Privacy and limitations
+
+Author IDs are HMAC-SHA256 pseudonyms; author hashes never appear in reports.
+Email addresses, phone-like strings, tokens, mentions, IP addresses and invite
+links are redacted on a best-effort basis. Summaries may still expose sensitive
+facts, so review provider settings and access controls before using real data.
+
+Opt-out deletes local user messages and affected signals while retaining a
+suppression hash. Retention also removes expired reports, evidence and feedback
+from SQLite. Already-posted Discord reports, provider-held data, and backups
+need separate operator handling; there is no legal-compliance guarantee.
+
+Other limitations:
+
+- No live large-guild validation or live model-quality benchmark is included.
+- Bounded merge groups can leave semantically duplicate signals across groups.
+- Evidence membership is validated, not the truth of model-written conclusions.
+- Feedback covers administrators on the report's first message, not each signal.
+- No attachment/embed analysis, automatic thread discovery, dashboard, or vector DB.
+- Limits stop oversized reports rather than silently sampling the population.
+- SQLite and the process lock are for one local instance, not horizontal scaling.
+
+## Contributing and checks
 
 ```bash
 pytest
 ruff check .
 ruff format --check .
+python -m seismograph demo
+python tools/benchmark.py --messages 20000
 ```
 
-Tests cover the deterministic domain: scoring bounds and monotonicity, loudness
-versus breadth, emerging detection, missing history, evidence validation,
-rejection of invented message ids, jump-link construction, author hashing,
-redaction, configuration failures, empty analysis, the single repair attempt, and
-prompt-injection text remaining data. Discord library calls are not mocked.
+The benchmark is local and synthetic, with a recorded classifier; it measures
+storage and deterministic processing, not live Discord traffic or model accuracy.
+CI also builds the Docker image and checks its demo and non-root runtime.
 
-## Known limitations
-
-- One guild per process. Multi-guild deployments need separate processes.
-- Signals are matched across runs by normalized title and category. A reworded
-  title is treated as new, which makes the growth component conservative.
-- Clustering happens inside the model. There are no embeddings, so wording that
-  differs sharply may split into separate signals.
-- Batch merging is a single extra model call with a deterministic title-based
-  fallback; very large weeks may still produce near-duplicate signals.
-- The weekly schedule depends on process uptime. A process that is down for the
-  whole scheduled hour skips that week; run the command manually to recover.
-- Reaction feedback is recorded per report, not per signal, and nothing consumes
-  it yet.
-- Content redaction is regex-based and will not catch every sensitive string.
-- Attachments, embeds, threads, forum posts, and edits after collection are not
-  analyzed.
-- Reports are plain Markdown messages rather than rich embeds.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerability reports go through the
-process in [SECURITY.md](SECURITY.md), not public issues.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+Keep changes focused, dependencies few, and abstractions justified by current
+needs. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+The [MIT License](LICENSE) permits use, modification, distribution and commercial
+use subject to its terms.

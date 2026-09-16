@@ -30,12 +30,23 @@ def configure_logging(verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # Library debug output can include request URLs and raw gateway payloads.
+    for name in ("discord", "httpx", "httpcore", "aiohttp"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def cmd_run(_: argparse.Namespace) -> int:
+    import fcntl
+
     from .bot import build_client
 
     config = load_config()
+    if os.environ.get("LLM_PROCESSING_APPROVED", "").lower() != "true":
+        raise ConfigError(
+            "Set LLM_PROCESSING_APPROVED=true only after completing the rollout checklist"
+        )
+    os.umask(0o077)
+    Path(config.database_path).parent.mkdir(parents=True, exist_ok=True)
     log.info(
         "starting: %d source channel(s), timezone %s, window %d day(s), retention %d day(s)",
         len(config.source_channel_ids),
@@ -43,17 +54,48 @@ def cmd_run(_: argparse.Namespace) -> int:
         config.analysis_days,
         config.retention_days,
     )
-    client = build_client(config)
-    client.run(config.discord_token, log_handler=None)
-    return 0
+    with open(config.database_path + ".lock", "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ConfigError("Another bot process is using DATABASE_PATH") from None
+        client = build_client(config)
+        client.run(config.discord_token, log_handler=None)
+    return 1 if client.startup_failed else 0
 
 
 def cmd_prune(args: argparse.Namespace) -> int:
-    config = load_config()
-    connection = storage.connect(config.database_path)
-    days = args.days or config.retention_days
-    deleted = storage.prune(connection, days)
+    connection = storage.connect(os.environ.get("DATABASE_PATH", "seismograph.db"))
+    days = args.days if args.days is not None else int(os.environ.get("RETENTION_DAYS", "30"))
+    try:
+        deleted = storage.prune(connection, days)
+    finally:
+        connection.close()
     print(f"Deleted {deleted} message(s) older than {days} day(s).")
+    return 0
+
+
+def cmd_runs(args: argparse.Namespace) -> int:
+    connection = storage.connect(os.environ.get("DATABASE_PATH", "seismograph.db"))
+    try:
+        if args.retry is not None:
+            cursor = connection.execute(
+                "DELETE FROM runs WHERE id = ? AND status = 'failed' AND kind = 'scheduled'",
+                (args.retry,),
+            )
+            connection.commit()
+            if cursor.rowcount != 1:
+                print(
+                    "Only a failed, pre-publication scheduled run can be retried.", file=sys.stderr
+                )
+                return 2
+            print("Failed run cleared; the next scheduler tick can retry it.")
+        for row in connection.execute(
+            "SELECT id, kind, period_start, period_end, status FROM runs ORDER BY id DESC LIMIT 20"
+        ):
+            print(" | ".join(str(v) for v in row))
+    finally:
+        connection.close()
     return 0
 
 
@@ -145,6 +187,10 @@ def main(argv: list[str] | None = None) -> int:
     prune = subparsers.add_parser("prune", help="Delete messages past the retention window.")
     prune.add_argument("--days", type=int, help="Override RETENTION_DAYS.")
     prune.set_defaults(handler=cmd_prune)
+
+    runs = subparsers.add_parser("runs", help="Inspect runs; retry only failed scheduled runs.")
+    runs.add_argument("--retry", type=int, metavar="ID")
+    runs.set_defaults(handler=cmd_runs)
 
     subparsers.add_parser("period", help="Print the current analysis period.").set_defaults(
         handler=cmd_period

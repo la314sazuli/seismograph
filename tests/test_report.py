@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from conftest import iso, message, signal
+from conftest import iso, message
+from conftest import signal as base_signal
 
 from seismograph.report import (
     DISCORD_MESSAGE_LIMIT,
@@ -15,6 +16,12 @@ from seismograph.scoring import rank
 
 GUILD = 100000000000000001
 CHANNEL = "200000000000000011"
+
+
+def signal(**kwargs):
+    kwargs.setdefault("supporting_message_ids", ("1000", "1001", "1002"))
+    kwargs.setdefault("representative_message_ids", kwargs["supporting_message_ids"][:3])
+    return base_signal(**kwargs)
 
 
 def messages(count: int = 12):
