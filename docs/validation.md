@@ -6,13 +6,14 @@ results.
 
 | Check | Result |
 | --- | --- |
-| `pytest` | 338 passed in 6.39 seconds; one upstream `audioop` deprecation warning |
-| Original offline integration pilot | 11 passed, included in the 338-test total |
+| `pytest` | 343 passed in 6.71 seconds; one upstream `audioop` deprecation warning |
+| Original offline integration pilot | 11 passed, included in the 343-test total |
 | Investigation and pre-merge regression coverage | 53 additional tests, included in the total |
 | Evaluation regression coverage | 32 tests, included in the total; malformed predictions, false reassurance, answer-key separation, and bounded requests |
 | Fresh-set and review-tool coverage | 19 tests, included in the total; frozen hashes, packet metadata separation, empty ratings, missing outputs, baseline opt-in and budgets |
 | Case change-log coverage | 23 tests, included in the total; context versus interpretation, lost failures, privacy invalidation, current-marker comparisons, stale sends, and staff-only command handling |
 | Staff-review coverage | 43 tests, included in the total; correction previews, withdrawal audits, fresh revision keys, v3-to-v4 migration, opt-outs, allowlists, pagination, and command privacy |
+| Provider example and final delivery checks | Five additional tests, included in the total; Sonar-first example preserves the legacy fallback, and multi-part reports stop after source edits, deletions, or opt-outs |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
 | `python -m seismograph demo` | Passed without credentials or network calls |
@@ -44,6 +45,24 @@ inside the image. Check the CI results on the exact current
 head of [PR #2](https://github.com/la314sazuli/seismograph/pull/2) before relying
 on them; earlier Docker results do not validate a newer revision.
 No live Discord integration test or real-model quality evaluation was performed.
+
+## Final merge checks
+
+The primary `.env.example` selects `LLM_PROVIDER=sonar`, the Perplexity base URL,
+and the `sonar` model explicitly. A regression test verifies this configuration
+and the unchanged legacy fallback for installations that omit `LLM_PROVIDER`.
+The example keeps `LLM_PROCESSING_APPROVED=false`.
+
+The final source review found that weekly/manual report delivery checked
+evidence before sending but not between message chunks. The delivery loop now
+revalidates its snapshot before later chunks. Four tests cover unchanged
+delivery plus edits, deletion, and opt-out during the first send. Invalidated
+signals are removed; partial delivery remains `uncertain` and cannot trigger
+an automatic scheduled repost. Already-delivered or in-flight content remains
+an operator cleanup responsibility.
+
+Passing these checks supports merging the code, not authorizing a live
+deployment or claiming production readiness for a 500,000-member server.
 
 ## Staff-review checks
 

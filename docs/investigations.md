@@ -102,7 +102,8 @@ revision can change the status because it changes the selected evidence.
 
 ## Sonar and portability
 
-Use these environment variables alongside the existing Discord configuration:
+Perplexity Sonar is the primary documented setup and is selected explicitly in
+`.env.example`. Use these variables alongside the existing Discord configuration:
 
 ```sh
 export LLM_PROVIDER=sonar
@@ -124,8 +125,14 @@ disabling search is not a guarantee of provider retention or training policy.
 
 For another server, `LLM_PROVIDER=openai` keeps the original JSON-object
 chat-completions contract. A compatible self-hosted endpoint is possible; verify
-its JSON behavior and output quality. Sonar is an optional adapter, not a
-requirement or an exclusive feature tier. No free or unlimited provider access
+its JSON behavior and output quality. Here `openai` names the API compatibility
+adapter, not a requirement to use OpenAI's models or hosting. Requests go only
+to the configured base URL; the bot does not automatically switch providers.
+The omitted-variable fallback remains `openai` for compatibility with existing
+installations, so set `LLM_PROVIDER=sonar` explicitly for the Sonar setup.
+
+Sonar is the primary setup example, not a mandatory dependency or an exclusive
+feature tier. No free or unlimited provider access
 is bundled with this MIT project.
 
 Sonar request shape, request caps, search isolation, and returned-source

@@ -304,6 +304,17 @@ class SeismographClient(discord.Client):
                 sending = True
                 first = None
                 for chunk in chunks:
+                    if first is not None:
+                        # Discord sends yield to privacy events. Never send the
+                        # remaining chunks from an invalidated source snapshot.
+                        try:
+                            storage.validate_snapshot(self.connection, messages)
+                        except AnalysisError:
+                            self.connection.execute(
+                                "DELETE FROM signals WHERE run_id = ?", (run_id,)
+                            )
+                            self.connection.commit()
+                            raise
                     sent = await channel.send(chunk, suppress_embeds=True)
                     first = first or sent
                     self.connection.execute(

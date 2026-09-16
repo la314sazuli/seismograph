@@ -148,6 +148,34 @@ restricts data use and prohibits model training on message content without
 express permission. Server approval is not a substitute for required platform
 approval or an acceptable provider data policy.
 
+## Model provider: Perplexity Sonar first
+
+Perplexity Sonar is the primary documented setup. Copy `.env.example` and
+supply your own Perplexity API key securely:
+
+```env
+LLM_PROVIDER=sonar
+LLM_BASE_URL=https://api.perplexity.ai
+LLM_MODEL=sonar
+LLM_API_KEY=replace-with-your-perplexity-api-key
+```
+
+The Sonar adapter requests structured JSON and disables web search for private
+Discord analysis. Disabling search does not make processing local: selected,
+redacted message text still goes to the configured provider. Optional public
+research is a separate, explicitly approved operation.
+
+Other servers can choose a hosted or self-hosted compatible endpoint using
+`LLM_PROVIDER=openai` and that provider's URL, model, and key.
+**OpenAI-compatible describes the API format, not a requirement to use OpenAI's
+models or hosting.** Requests go to `LLM_BASE_URL`; there is no automatic
+fallback to another provider.
+
+The source remains MIT-licensed and provider-portable. It does not include API
+access, unlimited inference, or an endorsement by Perplexity. The Sonar adapter
+is covered by offline request-contract tests, not a live-model quality claim.
+See [Sonar setup and portability](docs/investigations.md#sonar-and-portability).
+
 ## Configuration
 
 All configuration comes from environment variables. `.env` files are not
@@ -159,10 +187,10 @@ automatically loaded.
 | `DISCORD_GUILD_ID` | required | Single guild ID. |
 | `SOURCE_CHANNEL_IDS` | required | Comma-separated explicit source IDs. |
 | `REPORT_CHANNEL_ID` | required | Staff-only text channel, not a source. |
-| `LLM_API_KEY` | required | Chat-completions bearer token. |
-| `LLM_BASE_URL` | required | HTTPS base URL, such as `https://api.example.com/v1`. Localhost HTTP is allowed. |
-| `LLM_MODEL` | required | Model supporting JSON chat completions. |
-| `LLM_PROVIDER` | `openai` | `openai` for compatible endpoints; `sonar` for the Sonar adapter. |
+| `LLM_API_KEY` | required | Perplexity API key for the Sonar setup, or your selected provider's key. |
+| `LLM_BASE_URL` | required | Sonar: `https://api.perplexity.ai`. Other providers may use a compatible URL; localhost HTTP is allowed. |
+| `LLM_MODEL` | required | Sonar setup: `sonar`. Otherwise a model supporting the compatible JSON contract. |
+| `LLM_PROVIDER` | `openai` if omitted | Set `sonar`, as in `.env.example`. The omitted-variable fallback stays unchanged for existing compatible-endpoint installations. |
 | `AUTHOR_HASH_SALT` | required | Random secret, at least 16 characters. |
 | `LLM_PROCESSING_APPROVED` | `false` | Must be `true` to run the bot after completing the rollout checklist. |
 | `REPORT_TIMEZONE` | `UTC` | IANA timezone. |
@@ -229,7 +257,7 @@ put secrets in the image or use multiple replicas against one database.
 `bot.py` collects bounded history and live events without member caching.
 `privacy.py` redacts obvious sensitive strings and HMACs author IDs.
 `storage.py` stores messages and run state directly in SQLite with WAL.
-`analysis.py` prepares bounded text batches and calls an OpenAI-compatible
+`analysis.py` prepares bounded text batches and calls Sonar or a compatible
 chat-completions endpoint in a worker thread.
 Validated candidates merge through bounded descriptor groups while Python
 retains and unions the original evidence IDs.

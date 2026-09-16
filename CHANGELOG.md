@@ -2,6 +2,11 @@
 
 ## 0.3.0: evidence-backed investigations
 
+- Perplexity Sonar is now the primary README and `.env.example` setup; compatible
+  providers remain supported, with no silent change to existing provider selection.
+- Weekly/manual reports revalidate evidence between Discord chunks. A privacy
+  change stops remaining chunks and keeps partial delivery marked uncertain.
+
 - Revision-bound staff corrections and reasoned withdrawals, with original
   model output preserved and a separately labeled follow-up-count preview.
 - Private administrator review commands, stale-key rejection, bounded paginated

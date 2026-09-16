@@ -13,6 +13,11 @@ consistent database backup first. Staff review migrates schema v1–v3 to v4;
 rollback to an older binary requires the pre-upgrade backup. See
 [staff review](staff-review.md) for the new retained data and deletion behavior.
 
+Report delivery revalidates its source snapshot between message chunks. A source
+edit, deletion, or opt-out stops the remaining chunks and leaves a partial send
+marked `uncertain`, so the scheduler does not automatically repost it.
+Already-sent or in-flight text is not recalled and requires operator cleanup.
+
 - Obtain the server owner's approval for the specific feedback channels. Avoid
   general chat and channels likely to contain sensitive support or account data.
 - Disclose what is collected, the model provider, retention, and how to opt out.
