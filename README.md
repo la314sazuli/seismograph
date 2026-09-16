@@ -39,6 +39,13 @@ To challenge a wrong outcome label without rewriting the evidence, try
 and withdrawals, with a separately labeled count preview and privacy-aware
 audit. See [staff review](docs/staff-review.md) for commands and upgrade steps.
 
+To distinguish patch exposure from a post-release timestamp, try
+`python -m seismograph exposure-demo`. Staff can separate quote-backed `received`
+and `not_received` observations from `unknown`, without rewriting outcomes or
+claiming a rollout success rate. New revisions and release markers reset exposure
+to unknown. See [patch exposure](docs/patch-exposure.md) and the
+[recorded replay](docs/exposure-demo.md).
+
 ## Evaluate without Discord
 
 Run `python -m seismograph evaluate --output evaluation-smoke.json` for an
@@ -314,8 +321,10 @@ need separate operator handling; there is no legal-compliance guarantee.
 
 Staff corrections and withdrawals cascade with invalidated case revisions.
 Reviewer opt-out removes their review records without reactivating withdrawn
-corrections. See [staff review](docs/staff-review.md) for privacy and schema-v4
-upgrade details.
+corrections. Patch-exposure assessments also cascade with invalidated revisions;
+reviewer opt-out erases affected observation ledgers without restoring older
+assessments. See [staff review](docs/staff-review.md) for correction behavior and
+[patch exposure](docs/patch-exposure.md) for privacy and schema-v5 upgrade details.
 
 Other limitations:
 
@@ -339,6 +348,9 @@ ruff check .
 ruff format --check .
 python -m seismograph demo
 python -m seismograph investigate-demo
+python -m seismograph changes-demo
+python -m seismograph review-demo
+python -m seismograph exposure-demo
 python tools/benchmark.py --messages 20000
 ```
 

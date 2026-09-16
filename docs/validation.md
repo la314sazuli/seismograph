@@ -6,13 +6,14 @@ results.
 
 | Check | Result |
 | --- | --- |
-| `pytest` | 343 passed in 6.71 seconds; one upstream `audioop` deprecation warning |
-| Original offline integration pilot | 11 passed, included in the 343-test total |
+| `pytest` | 390 passed in 12.43 seconds; one upstream `audioop` deprecation warning |
+| Original offline integration pilot | 11 passed, included in the 390-test total |
 | Investigation and pre-merge regression coverage | 53 additional tests, included in the total |
 | Evaluation regression coverage | 32 tests, included in the total; malformed predictions, false reassurance, answer-key separation, and bounded requests |
 | Fresh-set and review-tool coverage | 19 tests, included in the total; frozen hashes, packet metadata separation, empty ratings, missing outputs, baseline opt-in and budgets |
 | Case change-log coverage | 23 tests, included in the total; context versus interpretation, lost failures, privacy invalidation, current-marker comparisons, stale sends, and staff-only command handling |
-| Staff-review coverage | 43 tests, included in the total; correction previews, withdrawal audits, fresh revision keys, v3-to-v4 migration, opt-outs, allowlists, pagination, and command privacy |
+| Staff-review coverage | 43 tests, included in the total; correction previews, withdrawal audits, fresh revision keys, migration from v3, opt-outs, allowlists, pagination, and command privacy |
+| Patch-exposure coverage | 47 additional tests, included in the total; exact quote and scope validation, unknown defaults, original/adjusted groups, overlap, reset audits, marker/revision freshness, privacy cascades, v4-to-v5 migration, command permissions, and offline replay |
 | Provider example and final delivery checks | Five additional tests, included in the total; Sonar-first example preserves the legacy fallback, and multi-part reports stop after source edits, deletions, or opt-outs |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
@@ -20,11 +21,12 @@ results.
 | `python -m seismograph investigate-demo` | Passed without credentials or network calls |
 | `python -m seismograph changes-demo` | Passed without credentials or network calls; demonstrates omitted failure evidence and privacy-invalidated history |
 | `python -m seismograph review-demo` | Passed without credentials or network calls; deliberately wrong recorded label corrected without altering source/model output, withdrawal, and privacy erasure |
+| `python -m seismograph exposure-demo` | Passed without credentials or network calls; three exposure groups, explicit reset, reviewer erasure, stale release rejection, and source deletion |
 | `python -m seismograph evaluate` | All 12 reference-replay cases passed; zero provider calls; scorer consistency only, not model accuracy |
 | Fresh review preparation | Ten additional cases; blank two-reviewer packet generated; zero real provider calls or human ratings |
-| Build and install | Built the updated 0.3.0 wheel, installed in a fresh Python 3.12 environment, ran all four demos and the evaluator outside the source tree; fresh review tooling is source-checkout-only |
+| Build and install | Built the updated 0.3.0 wheel, installed in a fresh Python 3.14 environment, ran all five demos and the evaluator outside the source tree; fresh review tooling is source-checkout-only |
 | Installed dependencies | Compatible according to `uv pip check` |
-| 20,000 synthetic messages | 1.410 seconds total; 72.5 MiB peak RSS; 92 recorded-classifier batches |
+| 20,000 synthetic messages | 2.137 seconds total; 72.4 MiB peak RSS; 92 recorded-classifier batches |
 | 100,000 synthetic messages, earlier 0.2 baseline only | 5.104 seconds total; 162.6 MiB peak RSS; 459 recorded-classifier batches; not rerun for 0.3 |
 
 The benchmark exercises SQLite ingestion, preprocessing, validation,
@@ -40,11 +42,34 @@ migration, scheduling, changed evidence, and ambiguous send failures.
 
 Docker is not available in this local sandbox. The `checks` workflow runs a
 Python 3.12, 3.13, and 3.14 matrix and a separate Docker job, including the
-investigation, case changes, and staff review demos plus the offline evaluator
-inside the image. Check the CI results on the exact current
-head of [PR #2](https://github.com/la314sazuli/seismograph/pull/2) before relying
-on them; earlier Docker results do not validate a newer revision.
+investigation, case changes, staff review, and patch exposure demos plus the
+offline evaluator inside the image. Check the
+[workflow results](https://github.com/la314sazuli/seismograph/actions/workflows/checks.yml)
+on the exact current commit before relying on them; earlier Docker results
+do not validate a newer revision.
 No live Discord integration test or real-model quality evaluation was performed.
+
+## Patch-exposure checks
+
+`tests/test_exposure.py` confirms that timestamps and build mentions alone do
+not assign exposure. Staff must provide an exact source excerpt and the current
+revision/release key. Tests preserve original payloads and counts, separate
+adjusted previews, deduplicate reporter conflicts within groups, and expose
+overlap rather than pretending the groups are disjoint cohorts.
+
+An identical release marker still receives a new key. A new revision, including
+a reused numeric SQLite ID after privacy deletion, cannot inherit assessments.
+Explicit unknown resets preserve prior entries until source invalidation or
+reviewer opt-out erases the dependent ledger. Removing a later reset cannot
+reactivate an older received claim.
+
+Tests also exercise the audit bound across marker changes, paginated reads,
+outer transaction preservation, corrupted retained evidence, v4 migration and
+reopen stability, source allowlists, runtime administrator checks, private
+replies, preflight failures before writes, and per-chunk invalidation after
+source, reviewer, release, or assessment changes. Frozen evaluation inputs and
+`cases.py` remain unchanged. These checks validate implementation contracts,
+not the truth of a user's claimed build or the quality of a staff judgment.
 
 ## Final merge checks
 
@@ -214,6 +239,7 @@ python -m seismograph demo
 python -m seismograph investigate-demo
 python -m seismograph changes-demo
 python -m seismograph review-demo
+python -m seismograph exposure-demo
 python -m seismograph evaluate --output evaluation-smoke.json
 python tools/blind_review.py prepare --output fresh-review
 ```
