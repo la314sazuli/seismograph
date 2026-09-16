@@ -65,6 +65,13 @@ fix: review its observations before relying on the status.
 
 ## Follow-up rules
 
+After two retained revisions exist, `/seismograph_changes case_id:12` compares
+their selected evidence and interpretations without a model call. It warns
+when prior failure observations disappear or are relabeled, rather than
+assuming the better status means recovery. Both snapshots use the current
+intervention marker, not historical marker state. See
+[case changes](case-changes.md) for exact scope and privacy behavior.
+
 The current revision's selected observations are the entire counting scope.
 This is not a statistical estimate of the server's population.
 

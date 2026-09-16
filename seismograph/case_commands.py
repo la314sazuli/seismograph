@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 from discord.utils import escape_markdown
 
-from . import cases, storage
+from . import case_history, cases, storage
 from .analysis import AnalysisError, LLMClient, prepare
 from .pipeline import utc_iso
 from .report import split_for_discord
@@ -20,6 +20,44 @@ log = logging.getLogger(__name__)
 
 
 def register(client) -> None:
+    @client.tree.command(
+        name="seismograph_changes",
+        description="Compare the last two retained case revisions without a model call.",
+    )
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def changes(interaction: discord.Interaction, case_id: int) -> None:
+        if interaction.guild_id != client.config.guild_id:
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if client.report_lock.locked():
+                raise AnalysisError("Another report or investigation is running; try later")
+            async with client.report_lock:
+                await client.preflight()
+                comparison = case_history.compare(
+                    client.connection, case_id, client.config.source_channel_ids
+                )
+                text = case_history.render(comparison, client.config.guild_id)
+                for chunk in split_for_discord(text):
+                    case_history.assert_current(client.connection, comparison)
+                    await interaction.followup.send(
+                        chunk,
+                        ephemeral=True,
+                        suppress_embeds=True,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+        except AnalysisError as exc:
+            await interaction.followup.send(
+                str(exc), ephemeral=True, allowed_mentions=discord.AllowedMentions.none()
+            )
+        except discord.HTTPException:
+            log.exception("Discord access failed during a case comparison")
+            await interaction.followup.send(
+                "Discord access failed; inspect operator logs.", ephemeral=True
+            )
+
     @client.tree.command(name="seismograph_signals", description="List recent report signal IDs.")
     @app_commands.guild_only()
     @app_commands.default_permissions(administrator=True)

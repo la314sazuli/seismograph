@@ -32,6 +32,12 @@ production-capacity certification or an official Perplexity integration.
 - Separate fresh-v1 challenge set and two-reviewer packet generator, with
   randomized candidate positions, withheld coordinator metadata, an explicit
   no-results starter state, and an opt-in simple-summary baseline.
+- Staff-only `/seismograph_changes` compares the latest two retained case
+  revisions without inference, distinguishing new context, omitted evidence,
+  and rewritten interpretations. A lost-failure warning highlights misleading
+  recovery; both snapshots use the current marker, not historical marker state.
+- Credential-free change-log replay, source-allowlist checks on both revisions,
+  and invalidation checks before sending subsequent comparison chunks.
 
 Back up the database before upgrading. Read
 [the investigation guide](docs/investigations.md) and

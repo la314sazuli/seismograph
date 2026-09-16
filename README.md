@@ -28,6 +28,12 @@ for staff commands, Sonar configuration, and the current limits.
 Read the [recorded demo output](docs/investigation-demo.md) to inspect the case
 without installing anything.
 
+To inspect what changed between investigations, try
+`python -m seismograph changes-demo`. The staff-only `/seismograph_changes`
+command separates newly selected evidence from rewritten interpretations and
+flags apparent recovery caused by omitted failure observations. Read
+[the change-log guide](docs/case-changes.md) for its limits.
+
 ## Evaluate without Discord
 
 Run `python -m seismograph evaluate --output evaluation-smoke.json` for an
@@ -227,6 +233,7 @@ length-limited, mention-disabled reports.
 The scheduler, manual command, and synthetic demo reuse the same domain logic.
 `cases.py` validates case evidence and computes follow-up status;
 `case_commands.py` exposes administrator-only ephemeral workflows.
+`case_history.py` compares retained snapshots without a model or new storage.
 `research.py` accepts only an explicitly approved public query and source
 domains, never a database or case object. There is no autonomous research loop.
 
