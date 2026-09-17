@@ -25,6 +25,7 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
+      - run: python -m seismograph --version
       - run: python -m seismograph demo
       - run: python -m seismograph investigate-demo
       - run: python -m seismograph changes-demo
@@ -34,11 +35,57 @@ jobs:
       - run: python tools/blind_review.py prepare --output /tmp/fresh-review
       - run: python tools/benchmark.py --messages 20000
 
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - name: Build source distribution and wheel from it
+        run: python -m build
+      - name: Test both distributions outside the checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$PWD"
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          for kind in wheel source; do
+            if [ "$kind" = wheel ]; then
+              package="$root/dist/seismograph-$version-py3-none-any.whl"
+            else
+              package="$root/dist/seismograph-$version.tar.gz"
+            fi
+            python -m venv "$RUNNER_TEMP/$kind-env"
+            py="$RUNNER_TEMP/$kind-env/bin/python"
+            "$py" -m pip install "$package"
+            "$py" -m pip check
+            cd "$RUNNER_TEMP"
+            test "$("$py" -I -m seismograph --version)" = "seismograph $version"
+            "$py" -I -c "from importlib.metadata import version; from seismograph import __version__; assert version('seismograph') == __version__ == '$version'"
+            for demo in demo investigate-demo changes-demo review-demo exposure-demo; do
+              "$py" -I -m seismograph "$demo"
+            done
+            "$py" -I -m seismograph evaluate --output "$RUNNER_TEMP/$kind-evaluation.json"
+            cd "$root"
+          done
+      - name: Keep the checked packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/*
+          if-no-files-found: error
+
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t seismograph:ci .
+      - name: Image version matches source
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          test "$(docker run --rm seismograph:ci --version)" = "seismograph $version"
       - name: Demo runs in the image
         run: docker run --rm seismograph:ci demo
       - name: Investigation demo runs in the image

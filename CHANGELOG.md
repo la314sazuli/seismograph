@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased: patch exposure
+## 0.4.0: patch exposure
 
 - Quote-backed staff assessments separate `received`, `not_received`, and
   `unknown` exposure to a specific patch. Post-release timestamps never imply
@@ -13,6 +13,8 @@
   cascades to exposure history; reviewer opt-out cannot revive superseded claims.
 - Credential-free `exposure-demo`, regression tests, and CI/Docker replay.
   No new runtime dependency or live-service access.
+- Versioned wheel and source distribution, `python -m seismograph --version`,
+  and clean-install CI checks for both distribution formats.
 
 ## 0.3.0: evidence-backed investigations
 

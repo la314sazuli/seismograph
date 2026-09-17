@@ -87,6 +87,9 @@ production capacity for any particular guild. Read the
 ## Install and try it
 
 Use Python 3.12+ on Linux or macOS, or the Linux Docker image.
+For versioned downloads, checksums, source archives, and database upgrade
+instructions, see the [release guide](docs/releases.md). A release is not a
+production-capacity certification, and a draft is not a public download.
 
 ```bash
 git clone https://github.com/la314sazuli/seismograph.git
@@ -96,6 +99,9 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 python -m seismograph demo
 ```
+
+Run `python -m seismograph --version` to identify the installed version without
+connecting to a provider or Discord.
 
 The default demo needs no credentials or paid API calls. It uses clearly labelled
 fictional fixtures and a recorded classification, then runs real preprocessing,

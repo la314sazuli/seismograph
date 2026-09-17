@@ -1,6 +1,6 @@
 [project]
 name = "seismograph"
-version = "0.3.0"
+version = "0.4.0"
 description = "An evidence-backed Discord product-intelligence bot that detects emerging user friction before it becomes an incident."
 readme = "README.md"
 requires-python = ">=3.12"

@@ -11,7 +11,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import storage
+from . import __version__, storage
 from .analysis import AnalysisError, AnalysisRun, LLMClient, prepare, validate_signals
 from .config import ConfigError, load_config
 from .pipeline import analysis_period, period_label
@@ -195,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     from .evaluation import register as register_evaluation
 
     parser = argparse.ArgumentParser(prog="seismograph", description=__doc__)
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("-v", "--verbose", action="store_true")
     subparsers = parser.add_subparsers(dest="command", required=True)
     register_evaluation(subparsers)
