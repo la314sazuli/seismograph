@@ -106,19 +106,33 @@ The marker establishes time order only. Actual patch adoption, matched device
 versions, exposure, and reproducibility are not verified. A changed case
 revision can change the status because it changes the selected evidence.
 
-## Sonar and portability
+## Provider and portability
 
-Perplexity Sonar is the primary documented setup and is selected explicitly in
-`.env.example`. Use these variables alongside the existing Discord configuration:
+Any endpoint that accepts an OpenAI-compatible JSON-object chat-completions
+contract works. `openai` names the API compatibility adapter, not a requirement
+to use OpenAI's models or hosting. Requests go only to the configured base URL;
+the bot does not automatically switch providers. A compatible self-hosted
+endpoint is possible; verify its JSON behavior and output quality.
+
+```sh
+export LLM_PROVIDER=openai
+export LLM_BASE_URL=https://your-provider.example.com/v1
+export LLM_MODEL=your-model
+# Supply LLM_API_KEY securely; never commit it.
+```
+
+The omitted-variable fallback remains `openai` for compatibility with existing
+installations.
+
+Perplexity Sonar is one supported example. Set `LLM_PROVIDER=sonar` explicitly:
 
 ```sh
 export LLM_PROVIDER=sonar
 export LLM_BASE_URL=https://api.perplexity.ai
 export LLM_MODEL=sonar
-# Supply LLM_API_KEY securely; never commit it.
 ```
 
-The adapter uses chat completions and JSON Schema output, and sets
+The Sonar adapter uses chat completions and JSON Schema output, and sets
 `disable_search=true` for private report and case analysis. Perplexity documents
 the compatible endpoint in its [OpenAI compatibility guide](https://docs.perplexity.ai/docs/sonar/openai-compatibility),
 structured output in [Sonar features](https://docs.perplexity.ai/docs/sonar/features),
@@ -129,20 +143,12 @@ text still goes to the configured provider. Complete the existing processing
 approval and community-disclosure checklist. Redaction is best-effort, and
 disabling search is not a guarantee of provider retention or training policy.
 
-For another server, `LLM_PROVIDER=openai` keeps the original JSON-object
-chat-completions contract. A compatible self-hosted endpoint is possible; verify
-its JSON behavior and output quality. Here `openai` names the API compatibility
-adapter, not a requirement to use OpenAI's models or hosting. Requests go only
-to the configured base URL; the bot does not automatically switch providers.
-The omitted-variable fallback remains `openai` for compatibility with existing
-installations, so set `LLM_PROVIDER=sonar` explicitly for the Sonar setup.
+Sonar is currently the only adapter that supports the optional public-research
+lane. No provider is mandatory, and no free or unlimited provider access is
+bundled with this MIT project.
 
-Sonar is the primary setup example, not a mandatory dependency or an exclusive
-feature tier. No free or unlimited provider access
-is bundled with this MIT project.
-
-Sonar request shape, request caps, search isolation, and returned-source
-handling are tested with synthetic responses. No live Sonar call or semantic
+Provider request shape, request caps, search isolation, and returned-source
+handling are tested with synthetic responses. No live provider call or semantic
 quality benchmark has been performed. The provider layer is deliberately small
 so endpoint changes do not require rewriting the case lifecycle.
 

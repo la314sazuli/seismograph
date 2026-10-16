@@ -44,8 +44,9 @@ No prebuilt container image or PyPI package is implied by a GitHub release.
 5. Start only in an authorized environment. Schema v5 migrates older databases
    on startup; rollback to an older binary requires the pre-upgrade backup.
 
-Version 0.4.0 keeps Perplexity Sonar as the primary documented setup and retains
-compatible-provider support. It adds no runtime dependency or required secret.
+Version 0.4.0 leads with any OpenAI-compatible endpoint and documents Perplexity
+Sonar as one supported example; it retains compatible-provider support. It adds
+no runtime dependency or required secret.
 For the new retained audit, exposure resets, and privacy behavior, read
 [patch exposure](patch-exposure.md).
 

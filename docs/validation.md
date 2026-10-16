@@ -15,7 +15,7 @@ results.
 | Staff-review coverage | 43 tests, included in the total; correction previews, withdrawal audits, fresh revision keys, migration from v3, opt-outs, allowlists, pagination, and command privacy |
 | Patch-exposure coverage | 47 additional tests, included in the total; exact quote and scope validation, unknown defaults, original/adjusted groups, overlap, reset audits, marker/revision freshness, privacy cascades, v4-to-v5 migration, command permissions, and offline replay |
 | Release metadata coverage | Three additional tests, included in the total; source/package version alignment, changelog version, and credential-free `--version` |
-| Provider example and final delivery checks | Five additional tests, included in the total; Sonar-first example preserves the legacy fallback, and multi-part reports stop after source edits, deletions, or opt-outs |
+| Provider example and final delivery checks | Five additional tests, included in the total; the provider-neutral example preserves the legacy fallback, and multi-part reports stop after source edits, deletions, or opt-outs |
 | `ruff check .` | Passed |
 | `ruff format --check .` | Passed |
 | `python -m seismograph demo` | Passed without credentials or network calls |
@@ -90,10 +90,10 @@ not the truth of a user's claimed build or the quality of a staff judgment.
 
 ## Final merge checks
 
-The primary `.env.example` selects `LLM_PROVIDER=sonar`, the Perplexity base URL,
-and the `sonar` model explicitly. A regression test verifies this configuration
-and the unchanged legacy fallback for installations that omit `LLM_PROVIDER`.
-The example keeps `LLM_PROCESSING_APPROVED=false`.
+`.env.example` leads with the portable `LLM_PROVIDER=openai` adapter and documents
+Perplexity Sonar as a commented example. A regression test verifies this neutral
+default and the unchanged legacy fallback for installations that omit
+`LLM_PROVIDER`. The example keeps `LLM_PROCESSING_APPROVED=false`.
 
 The final source review found that weekly/manual report delivery checked
 evidence before sending but not between message chunks. The delivery loop now

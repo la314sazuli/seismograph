@@ -50,18 +50,20 @@ server exports without appropriate consent and your own privacy review.
 Set these variables in your shell or deployment secret manager, not in Git:
 
 ```sh
-export LLM_BASE_URL=https://api.perplexity.ai
-export LLM_MODEL=sonar
-export LLM_PROVIDER=sonar
+export LLM_BASE_URL=https://your-provider.example.com/v1
+export LLM_MODEL=your-model
+export LLM_PROVIDER=openai
 # Set LLM_API_KEY securely in your environment.
 python -m seismograph evaluate --live --allow-api-calls \
-  --max-requests 24 --output sonar-run.json
+  --max-requests 24 --output live-run.json
 ```
 
-No Discord environment variables are required. For another OpenAI-compatible
-provider, set `LLM_PROVIDER=openai` and its base URL and model. Local HTTP
-endpoints are allowed only for localhost; remote endpoints require HTTPS.
-Provider compatibility and semantic accuracy still need to be measured.
+No Discord environment variables are required. Any OpenAI-compatible endpoint
+works; `LLM_PROVIDER=openai` selects the generic adapter. Perplexity Sonar is one
+example (`LLM_PROVIDER=sonar`, `LLM_BASE_URL=https://api.perplexity.ai`,
+`LLM_MODEL=sonar`). Local HTTP endpoints are allowed only for localhost; remote
+endpoints require HTTPS. Provider compatibility and semantic accuracy still need
+to be measured.
 
 Both `--live` and `--allow-api-calls` are required. The global HTTP-attempt
 budget defaults to 24, accepts 1 through 200, includes retries and repairs,
