@@ -1,14 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.0: patch exposure
 
 - Documentation and `.env.example` now lead with the portable OpenAI-compatible
   adapter. Perplexity Sonar stays documented as one example and remains the
   adapter that supports the optional public-research lane. No provider-selection
   or runtime behavior change.
-
-## 0.4.0: patch exposure
-
 - Quote-backed staff assessments separate `received`, `not_received`, and
   `unknown` exposure to a specific patch. Post-release timestamps never imply
   patch installation, and segmentation does not change case resolution status.
