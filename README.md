@@ -24,7 +24,7 @@ and refuses to mark a patch successful while failures continue.
 The output uses recorded interpretations, not a live model. Exact quote checks,
 case persistence, deterministic reporter counts, and deletion checks run through
 the real implementation. See the [investigation guide](docs/investigations.md)
-for staff commands, Sonar configuration, and the current limits.
+for staff commands, provider configuration, and the current limits.
 Read the [recorded demo output](docs/investigation-demo.md) to inspect the case
 without installing anything.
 
@@ -51,8 +51,8 @@ to unknown. See [patch exposure](docs/patch-exposure.md) and the
 Run `python -m seismograph evaluate --output evaluation-smoke.json` for an
 offline scorer check against 12 synthetic challenge cases. This default
 reference replay uses the answer key and is **not a model-quality result**.
-An optional, explicitly approved live mode tests Sonar or another
-OpenAI-compatible model without Discord credentials. The
+An optional, explicitly approved live mode tests a configured
+OpenAI-compatible model (such as Perplexity Sonar) without Discord credentials. The
 [evaluation guide](docs/evaluation.md) explains answer-key separation, false
 reassurance checks, request budgets, audit files, and the human-review rubric.
 The [fresh challenge and review pack](evaluations/fresh-v1/README.md) provides
@@ -77,8 +77,8 @@ including an optional simple-summary baseline. No real-model results are bundled
   competing hypotheses, counterexamples, and a test that could refute each.
 - Records an intervention without closing the case. Explicit failure and success
   reports drive follow-up status; silence is never evidence of a fix.
-- Supports Sonar with search disabled for private analysis, or a portable
-  OpenAI-compatible endpoint. Optional public research is separately approved.
+- Works with any OpenAI-compatible endpoint; the Sonar adapter disables web
+  search for private analysis. Optional public research is separately approved.
 
 This is a working MVP with large-community safeguards, not a claim of validated
 production capacity for any particular guild. Read the
@@ -161,33 +161,45 @@ restricts data use and prohibits model training on message content without
 express permission. Server approval is not a substitute for required platform
 approval or an acceptable provider data policy.
 
-## Model provider: Perplexity Sonar first
+## Model provider
 
-Perplexity Sonar is the primary documented setup. Copy `.env.example` and
-supply your own Perplexity API key securely:
+Any endpoint that accepts an OpenAI-compatible
+`POST {LLM_BASE_URL}/chat/completions` with a bearer token works. Set
+`LLM_BASE_URL` and `LLM_MODEL` to point at a hosted provider, a gateway, or a
+local server. Requests are sent with `temperature: 0` and
+`response_format: {"type": "json_object"}`; a provider that ignores
+`response_format` still works as long as it returns a JSON object, since output
+is parsed and validated locally either way. No provider is referenced in the
+domain logic.
+
+```env
+LLM_PROVIDER=openai
+LLM_API_KEY=replace-with-your-provider-api-key
+LLM_BASE_URL=https://your-provider.example.com/v1
+LLM_MODEL=your-model
+```
+
+`openai` names the compatible API adapter, not a requirement to use OpenAI's
+models or hosting. Requests go only to the configured `LLM_BASE_URL`; there is
+no automatic fallback to another provider.
+
+Perplexity Sonar is one supported example:
 
 ```env
 LLM_PROVIDER=sonar
 LLM_BASE_URL=https://api.perplexity.ai
 LLM_MODEL=sonar
-LLM_API_KEY=replace-with-your-perplexity-api-key
 ```
 
-The Sonar adapter requests structured JSON and disables web search for private
-Discord analysis. Disabling search does not make processing local: selected,
-redacted message text still goes to the configured provider. Optional public
-research is a separate, explicitly approved operation.
-
-Other servers can choose a hosted or self-hosted compatible endpoint using
-`LLM_PROVIDER=openai` and that provider's URL, model, and key.
-**OpenAI-compatible describes the API format, not a requirement to use OpenAI's
-models or hosting.** Requests go to `LLM_BASE_URL`; there is no automatic
-fallback to another provider.
+The Sonar adapter requests structured JSON, disables web search for private
+report and case analysis, and is currently the only adapter that supports the
+optional public research lane. Disabling search does not make processing local:
+selected, redacted message text still goes to the configured provider.
 
 The source remains MIT-licensed and provider-portable. It does not include API
-access, unlimited inference, or an endorsement by Perplexity. The Sonar adapter
-is covered by offline request-contract tests, not a live-model quality claim.
-See [Sonar setup and portability](docs/investigations.md#sonar-and-portability).
+access, unlimited inference, or an endorsement of any specific provider. Each
+adapter is covered by offline request-contract tests, not a live-model quality
+claim. See [provider setup and portability](docs/investigations.md#provider-and-portability).
 
 ## Configuration
 
@@ -200,10 +212,10 @@ automatically loaded.
 | `DISCORD_GUILD_ID` | required | Single guild ID. |
 | `SOURCE_CHANNEL_IDS` | required | Comma-separated explicit source IDs. |
 | `REPORT_CHANNEL_ID` | required | Staff-only text channel, not a source. |
-| `LLM_API_KEY` | required | Perplexity API key for the Sonar setup, or your selected provider's key. |
-| `LLM_BASE_URL` | required | Sonar: `https://api.perplexity.ai`. Other providers may use a compatible URL; localhost HTTP is allowed. |
-| `LLM_MODEL` | required | Sonar setup: `sonar`. Otherwise a model supporting the compatible JSON contract. |
-| `LLM_PROVIDER` | `openai` if omitted | Set `sonar`, as in `.env.example`. The omitted-variable fallback stays unchanged for existing compatible-endpoint installations. |
+| `LLM_API_KEY` | required | Your provider's API key. |
+| `LLM_BASE_URL` | required | A compatible base URL (e.g. `https://api.perplexity.ai` for Sonar); localhost HTTP is allowed. |
+| `LLM_MODEL` | required | A model supporting the compatible JSON contract (e.g. `sonar`). |
+| `LLM_PROVIDER` | `openai` if omitted | `openai` (generic compatible adapter) or `sonar` (adds the public-research lane). |
 | `AUTHOR_HASH_SALT` | required | Random secret, at least 16 characters. |
 | `LLM_PROCESSING_APPROVED` | `false` | Must be `true` to run the bot after completing the rollout checklist. |
 | `REPORT_TIMEZONE` | `UTC` | IANA timezone. |
@@ -270,8 +282,8 @@ put secrets in the image or use multiple replicas against one database.
 `bot.py` collects bounded history and live events without member caching.
 `privacy.py` redacts obvious sensitive strings and HMACs author IDs.
 `storage.py` stores messages and run state directly in SQLite with WAL.
-`analysis.py` prepares bounded text batches and calls Sonar or a compatible
-chat-completions endpoint in a worker thread.
+`analysis.py` prepares bounded text batches and calls the configured
+provider's chat-completions endpoint in a worker thread.
 Validated candidates merge through bounded descriptor groups while Python
 retains and unions the original evidence IDs.
 `scoring.py` computes deterministic rankings, and `report.py` renders

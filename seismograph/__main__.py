@@ -243,7 +243,8 @@ def main(argv: list[str] | None = None) -> int:
         "investigate-demo", help="Run a fictional investigation and fix-verification scenario."
     ).set_defaults(handler=cmd_investigate_demo)
     research = subparsers.add_parser(
-        "research-public", help="Explicitly research a public topic through Sonar; paid API call."
+        "research-public",
+        help="Research a public topic through a search-enabled provider; paid API call.",
     )
     research.add_argument("query")
     research.add_argument(

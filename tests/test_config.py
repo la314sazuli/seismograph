@@ -16,11 +16,12 @@ def test_valid_environment_loads(env):
     assert config.llm_base_url == "https://llm.example.invalid/v1"
 
 
-def test_primary_example_selects_sonar_without_changing_legacy_fallback(env):
+def test_example_env_leads_with_portable_provider_and_keeps_sonar_documented(env):
     example = Path(__file__).resolve().parents[1] / ".env.example"
+    text = example.read_text()
     values = dict(
         line.split("=", 1)
-        for line in example.read_text().splitlines()
+        for line in text.splitlines()
         if line and not line.startswith("#") and "=" in line
     )
     assert values["LLM_PROCESSING_APPROVED"] == "false"
@@ -29,9 +30,11 @@ def test_primary_example_selects_sonar_without_changing_legacy_fallback(env):
         **{key: values[key] for key in ("LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL")},
     }
     config = load_config(configured)
-    assert config.llm_provider == "sonar"
-    assert config.llm_base_url == "https://api.perplexity.ai"
-    assert config.llm_model == "sonar"
+    assert config.llm_provider == "openai"
+    assert config.llm_base_url == "https://your-provider.example.com/v1"
+    assert config.llm_model == "your-model"
+    # Sonar stays documented as an example, not as the selected default.
+    assert "api.perplexity.ai" in text and "sonar" in text
     env.pop("LLM_PROVIDER", None)
     assert load_config(env).llm_provider == "openai"
 
